@@ -38,6 +38,10 @@ func NewLocalServer(upstream UpstreamConfig) (*LocalServer, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newLocalServer(listener, upstream), nil
+}
+
+func newLocalServer(listener net.Listener, upstream UpstreamConfig) *LocalServer {
 	ls := &LocalServer{
 		listener: listener,
 		upstream: upstream,
@@ -45,7 +49,7 @@ func NewLocalServer(upstream UpstreamConfig) (*LocalServer, error) {
 		stopCh:   make(chan struct{}),
 	}
 	go ls.serve()
-	return ls, nil
+	return ls
 }
 
 func (ls *LocalServer) Port() int {
