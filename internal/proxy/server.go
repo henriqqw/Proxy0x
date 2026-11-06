@@ -265,7 +265,8 @@ func (ls *LocalServer) handleHTTP(clientConn net.Conn, req *http.Request) {
 			fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
 			return
 		}
-		defer upConn.Close()
+		ls.trackConn(upConn)
+		defer func() { ls.untrackConn(upConn); upConn.Close() }()
 		upConn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 		req.Write(upConn)
 	} else {
@@ -274,7 +275,8 @@ func (ls *LocalServer) handleHTTP(clientConn net.Conn, req *http.Request) {
 			fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
 			return
 		}
-		defer upConn.Close()
+		ls.trackConn(upConn)
+		defer func() { ls.untrackConn(upConn); upConn.Close() }()
 
 		if auth := ls.proxyAuth(); auth != "" {
 			req.Header.Set("Proxy-Authorization", auth)
