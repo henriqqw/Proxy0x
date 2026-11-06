@@ -19,8 +19,9 @@ Lightweight Windows proxy manager widget. Add residential proxies, rotate IPs by
 ## Screenshots
 
 <p align="center">
-  <img src="assets/screenshots/connected.png" alt="Connected proxy with geolocation" width="380">
-  <img src="assets/screenshots/dark-empty.png" alt="Dark theme — proxy card expanded" width="380">
+  <img src="assets/screenshots/connected.png" alt="Connected proxy with geolocation" width="270">
+  <img src="assets/screenshots/dark-empty.png" alt="Disconnected proxy card" width="270">
+  <img src="assets/screenshots/language-menu.png" alt="Language selector with 16 languages" width="270">
 </p>
 
 ## Downloads
