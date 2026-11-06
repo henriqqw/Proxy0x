@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -74,6 +75,23 @@ type LogEntry struct {
 	Detail  string `json:"detail"`
 }
 
+var (
+	ipCheckURL   = "https://api.ipify.org?format=json"
+	myIPURL      = "https://api.ipify.org?format=text"
+	geoURLFormat = "https://ipwho.is/%s"
+	speedTestURL = "https://speed.cloudflare.com/__down?bytes=102400"
+)
+
+type systemProxy interface {
+	Set(port int) error
+	Clear()
+}
+
+type windowsSystemProxy struct{}
+
+func (windowsSystemProxy) Set(port int) error { return proxy.SetSystemProxy(port) }
+func (windowsSystemProxy) Clear()             { proxy.ClearSystemProxy() }
+
 type App struct {
 	ctx        context.Context
 	proxies    map[string]*ProxyEntry
@@ -85,23 +103,36 @@ type App struct {
 	logs       []LogEntry
 	logMu      sync.RWMutex
 	crypt      *crypto.Store
+
+	dataFile       string
+	emit           func(ctx context.Context, name string, data ...interface{})
+	sysproxy       systemProxy
+	newLocalServer func(proxy.UpstreamConfig) (*proxy.LocalServer, error)
 }
 
 func NewApp() *App {
 	return &App{
-		proxies: make(map[string]*ProxyEntry),
-		clients: make(map[string]*http.Client),
-		stopCh:  make(chan struct{}),
-		logs:    make([]LogEntry, 0, 200),
-		crypt:   crypto.NewStore(config.DataDir()),
+		proxies:        make(map[string]*ProxyEntry),
+		clients:        make(map[string]*http.Client),
+		stopCh:         make(chan struct{}),
+		logs:           make([]LogEntry, 0, 200),
+		crypt:          crypto.NewStore(config.DataDir()),
+		dataFile:       config.DataFile(),
+		emit:           runtime.EventsEmit,
+		sysproxy:       windowsSystemProxy{},
+		newLocalServer: proxy.NewLocalServer,
 	}
+}
+
+func (a *App) emitEvent(name string, data ...interface{}) {
+	a.emit(a.ctx, name, data...)
 }
 
 // --- Lifecycle ---
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	proxy.ClearSystemProxy()
+	a.sysproxy.Clear()
 	a.loadProxies()
 	go a.setupTray()
 	go a.healthCheckLoop()
@@ -113,7 +144,7 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.localProxy != nil {
 		a.localProxy.Stop()
 		a.localProxy = nil
-		proxy.ClearSystemProxy()
+		a.sysproxy.Clear()
 	}
 	a.lpMu.Unlock()
 	close(a.stopCh)
@@ -133,7 +164,7 @@ func (a *App) QuitApp() {
 		a.localProxy = nil
 	}
 	a.lpMu.Unlock()
-	proxy.ClearSystemProxy()
+	a.sysproxy.Clear()
 	runtime.Quit(a.ctx)
 }
 
@@ -148,21 +179,21 @@ func (a *App) SetLanguage(lang string) {
 	cfg := config.Load()
 	cfg.Language = lang
 	config.Save(cfg)
-	runtime.EventsEmit(a.ctx, "language-changed", lang)
+	a.emitEvent("language-changed", lang)
 }
 
 func (a *App) SetTheme(theme string) {
 	cfg := config.Load()
 	cfg.Theme = theme
 	config.Save(cfg)
-	runtime.EventsEmit(a.ctx, "theme-changed", theme)
+	a.emitEvent("theme-changed", theme)
 }
 
 func (a *App) SetAutoRotateInterval(seconds int) {
 	cfg := config.Load()
 	cfg.AutoRotateInterval = seconds
 	config.Save(cfg)
-	runtime.EventsEmit(a.ctx, "config-changed", cfg)
+	a.emitEvent("config-changed", cfg)
 }
 
 func (a *App) SetHealthCheckInterval(seconds int) {
@@ -172,7 +203,7 @@ func (a *App) SetHealthCheckInterval(seconds int) {
 	cfg := config.Load()
 	cfg.HealthCheckInterval = seconds
 	config.Save(cfg)
-	runtime.EventsEmit(a.ctx, "config-changed", cfg)
+	a.emitEvent("config-changed", cfg)
 }
 
 // --- Logging ---
@@ -191,7 +222,7 @@ func (a *App) addLog(action, proxyID, host, detail string) {
 		a.logs = a.logs[len(a.logs)-200:]
 	}
 	a.logMu.Unlock()
-	runtime.EventsEmit(a.ctx, "log-entry", entry)
+	a.emitEvent("log-entry", entry)
 }
 
 func (a *App) GetConnectionLog() []LogEntry {
@@ -208,7 +239,7 @@ func (a *App) GetConnectionLog() []LogEntry {
 // --- Persistence ---
 
 func (a *App) loadProxies() {
-	data, err := os.ReadFile(config.DataFile())
+	data, err := os.ReadFile(a.dataFile)
 	if err != nil {
 		return
 	}
@@ -252,9 +283,9 @@ func (a *App) saveProxies() {
 	}
 	a.mu.RUnlock()
 
-	os.MkdirAll(config.DataDir(), 0o700)
+	os.MkdirAll(filepath.Dir(a.dataFile), 0o700)
 	data, _ := json.MarshalIndent(entries, "", "  ")
-	os.WriteFile(config.DataFile(), data, 0o600)
+	os.WriteFile(a.dataFile, data, 0o600)
 }
 
 // --- Proxy CRUD ---
@@ -319,7 +350,7 @@ func (a *App) AddProxy(raw string) (*ProxyEntry, error) {
 
 	a.addLog("added", p.ID, p.Host+":"+p.Port, "")
 	a.saveProxies()
-	runtime.EventsEmit(a.ctx, "proxy-updated", p)
+	a.emitEvent("proxy-updated", p)
 	return p, nil
 }
 
@@ -344,7 +375,7 @@ func (a *App) AddProxiesBatch(raw string) ([]*ProxyEntry, error) {
 
 	a.addLog("batch-added", "", "", fmt.Sprintf("%d proxies", len(added)))
 	a.saveProxies()
-	runtime.EventsEmit(a.ctx, "proxies-changed")
+	a.emitEvent("proxies-changed")
 	return added, nil
 }
 
@@ -360,7 +391,7 @@ func (a *App) RemoveProxy(id string) {
 	a.mu.Unlock()
 	a.addLog("removed", id, host, "")
 	a.saveProxies()
-	runtime.EventsEmit(a.ctx, "proxies-changed")
+	a.emitEvent("proxies-changed")
 }
 
 func (a *App) GetProxies() []*ProxyEntry {
@@ -429,7 +460,7 @@ func (a *App) SetProxyGroup(id, group string) (*ProxyEntry, error) {
 	p.Group = group
 	a.mu.Unlock()
 	a.saveProxies()
-	runtime.EventsEmit(a.ctx, "proxy-updated", p)
+	a.emitEvent("proxy-updated", p)
 	return p, nil
 }
 
@@ -563,13 +594,13 @@ func (a *App) setLocalProxy(p *ProxyEntry, id string) {
 
 	if a.localProxy != nil {
 		a.localProxy.Stop()
-		proxy.ClearSystemProxy()
+		a.sysproxy.Clear()
 	}
 
-	ls, err := proxy.NewLocalServer(a.toUpstreamConfig(p))
+	ls, err := a.newLocalServer(a.toUpstreamConfig(p))
 	if err == nil {
 		a.localProxy = ls
-		proxy.SetSystemProxy(ls.Port())
+		a.sysproxy.Set(ls.Port())
 		a.addLog("system-proxy", id, p.Host+":"+p.Port, fmt.Sprintf("local proxy on port %d", ls.Port()))
 	}
 }
@@ -581,7 +612,7 @@ func (a *App) clearLocalProxyIf(id string) {
 	if a.localProxy != nil && a.localProxy.UpstreamID() == id {
 		a.localProxy.Stop()
 		a.localProxy = nil
-		proxy.ClearSystemProxy()
+		a.sysproxy.Clear()
 	}
 }
 
@@ -609,10 +640,10 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 	client := a.getOrCreateClient(p)
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "proxy-updated", p)
+	a.emitEvent("proxy-updated", p)
 
 	start := time.Now()
-	resp, err := client.Get("https://api.ipify.org?format=json")
+	resp, err := client.Get(ipCheckURL)
 	latency := time.Since(start).Milliseconds()
 
 	if err != nil {
@@ -624,7 +655,7 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 		p.LastCheck = time.Now().Format(time.RFC3339)
 		a.mu.Unlock()
 		a.addLog("connect-failed", id, p.Host+":"+p.Port, err.Error())
-		runtime.EventsEmit(a.ctx, "proxy-updated", p)
+		a.emitEvent("proxy-updated", p)
 		return p, fmt.Errorf("connection failed: %v", err)
 	}
 	defer resp.Body.Close()
@@ -650,7 +681,7 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 	a.addLog("connected", id, p.Host+":"+p.Port, fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
 	a.setLocalProxy(p, id)
 
-	runtime.EventsEmit(a.ctx, "proxy-updated", p)
+	a.emitEvent("proxy-updated", p)
 	return p, nil
 }
 
@@ -678,7 +709,7 @@ func (a *App) DisconnectProxy(id string) (*ProxyEntry, error) {
 	a.clearLocalProxyIf(id)
 
 	a.addLog("disconnected", id, p.Host+":"+p.Port, "")
-	runtime.EventsEmit(a.ctx, "proxy-updated", p)
+	a.emitEvent("proxy-updated", p)
 	return p, nil
 }
 
@@ -696,10 +727,10 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 	client := a.getOrCreateClient(p)
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "proxy-updated", p)
+	a.emitEvent("proxy-updated", p)
 
 	start := time.Now()
-	resp, err := client.Get("https://api.ipify.org?format=json")
+	resp, err := client.Get(ipCheckURL)
 	latency := time.Since(start).Milliseconds()
 
 	if err != nil {
@@ -707,7 +738,7 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 		p.Status = StatusError
 		a.mu.Unlock()
 		a.addLog("rotate-failed", id, p.Host+":"+p.Port, err.Error())
-		runtime.EventsEmit(a.ctx, "proxy-updated", p)
+		a.emitEvent("proxy-updated", p)
 		return p, fmt.Errorf("rotation failed: %v", err)
 	}
 	defer resp.Body.Close()
@@ -732,7 +763,7 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 	a.addLog("rotated", id, p.Host+":"+p.Port, fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
 	a.setLocalProxy(p, id)
 
-	runtime.EventsEmit(a.ctx, "proxy-updated", p)
+	a.emitEvent("proxy-updated", p)
 	return p, nil
 }
 
@@ -755,7 +786,7 @@ func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
 	a.mu.RUnlock()
 
 	start := time.Now()
-	resp, err := client.Get("https://api.ipify.org?format=json")
+	resp, err := client.Get(ipCheckURL)
 	latency := time.Since(start).Milliseconds()
 
 	if err != nil {
@@ -765,12 +796,12 @@ func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
 		a.mu.Unlock()
 		if prevStatus == StatusConnected {
 			a.addLog("dropped", id, p.Host+":"+p.Port, err.Error())
-			runtime.EventsEmit(a.ctx, "proxy-dropped", map[string]string{
+			a.emitEvent("proxy-dropped", map[string]string{
 				"id":   id,
 				"host": p.Host + ":" + p.Port,
 			})
 		}
-		runtime.EventsEmit(a.ctx, "proxy-updated", p)
+		a.emitEvent("proxy-updated", p)
 		return p, nil
 	}
 	defer resp.Body.Close()
@@ -791,12 +822,12 @@ func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
 	}
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "proxy-updated", p)
+	a.emitEvent("proxy-updated", p)
 	return p, nil
 }
 
 func (a *App) fetchGeoInfo(client *http.Client, ip string) *GeoInfo {
-	resp, err := client.Get(fmt.Sprintf("https://ipwho.is/%s", ip))
+	resp, err := client.Get(fmt.Sprintf(geoURLFormat, ip))
 	if err != nil {
 		return nil
 	}
@@ -948,7 +979,7 @@ func (a *App) BenchmarkProxy(id string) (map[string]interface{}, error) {
 	results := map[string]interface{}{}
 
 	start := time.Now()
-	resp, err := client.Get("https://api.ipify.org?format=json")
+	resp, err := client.Get(ipCheckURL)
 	connectMs := time.Since(start).Milliseconds()
 	if err != nil {
 		return nil, fmt.Errorf("connect failed: %v", err)
@@ -957,7 +988,7 @@ func (a *App) BenchmarkProxy(id string) (map[string]interface{}, error) {
 	results["connectMs"] = connectMs
 
 	start = time.Now()
-	resp, err = client.Get("https://speed.cloudflare.com/__down?bytes=102400")
+	resp, err = client.Get(speedTestURL)
 	if err != nil {
 		results["downloadMs"] = int64(-1)
 		results["downloadMbps"] = float64(0)
@@ -978,7 +1009,7 @@ func (a *App) BenchmarkProxy(id string) (map[string]interface{}, error) {
 // --- Public IP ---
 
 func (a *App) GetMyIP() (string, error) {
-	resp, err := http.Get("https://api.ipify.org?format=text")
+	resp, err := http.Get(myIPURL)
 	if err != nil {
 		return "", err
 	}
