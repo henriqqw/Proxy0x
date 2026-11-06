@@ -7,7 +7,9 @@ import {
   GetKillSwitch, SetKillSwitch,
   GetAutoFailover, SetAutoFailover,
   CheckDNSLeak, BulkCheckProxies, EnableUWPSupport, ConnectFastest,
+  GetVersion,
 } from 'wailsjs/go/main/App'
+import { BrowserOpenURL, ClipboardGetText, ClipboardSetText } from 'wailsjs/runtime/runtime'
 import { main } from 'wailsjs/go/models'
 import { languages } from '../i18n/translations'
 import { useTranslation } from '../i18n/LanguageContext'
@@ -61,9 +63,13 @@ export default function SettingsPage({ onBack, onImported }: Props) {
   const [uwpDone, setUwpDone] = useState(false)
   const [fastestLoading, setFastestLoading] = useState(false)
   const [fastestResult, setFastestResult] = useState<string>('')
+  const [notice, setNotice] = useState('')
+  const [version, setVersion] = useState('')
+  const fail = (e: unknown) => setNotice(String(e))
 
   useEffect(() => {
     GetAutoRotateInterval().then(setAutoRotate).catch(() => {})
+    GetVersion().then(setVersion).catch(() => {})
     GetKillSwitch().then(setKillSwitchState).catch(() => {})
     GetAutoFailover().then(setAutoFailoverState).catch(() => {})
     GetMCPStatus().then(s => {
@@ -81,17 +87,26 @@ export default function SettingsPage({ onBack, onImported }: Props) {
 
   const setRotate = (v: number) => {
     setAutoRotate(v)
-    SetAutoRotateInterval(v).catch(() => {})
+    SetAutoRotateInterval(v).catch(fail)
   }
 
   const handleExport = async () => {
     try {
       const text = await ExportProxies()
       setExportText(text)
-      await navigator.clipboard.writeText(text)
+      await copySecret(text)
       setCopyDone(true)
       setTimeout(() => setCopyDone(false), 2000)
-    } catch {}
+    } catch (e) { fail(e) }
+  }
+
+  // Exported text holds plaintext passwords: clear the clipboard after 30 s
+  // unless the user has copied something else meanwhile.
+  const copySecret = async (text: string) => {
+    await ClipboardSetText(text)
+    setTimeout(async () => {
+      if (await ClipboardGetText() === text) ClipboardSetText('')
+    }, 30_000)
   }
 
   const handleImport = async () => {
@@ -102,18 +117,18 @@ export default function SettingsPage({ onBack, onImported }: Props) {
       setImportText('')
       setImportMode(false)
       onImported()
-    } catch {}
+    } catch (e) { fail(e) }
     setImporting(false)
   }
 
   const handleKillSwitch = async (enabled: boolean) => {
     setKillSwitchState(enabled)
-    try { await SetKillSwitch(enabled) } catch { setKillSwitchState(!enabled) }
+    try { await SetKillSwitch(enabled) } catch (e) { setKillSwitchState(!enabled); fail(e) }
   }
 
   const handleAutoFailover = async (enabled: boolean) => {
     setAutoFailoverState(enabled)
-    try { await SetAutoFailover(enabled) } catch { setAutoFailoverState(!enabled) }
+    try { await SetAutoFailover(enabled) } catch (e) { setAutoFailoverState(!enabled); fail(e) }
   }
 
   const handleDnsTest = async () => {
@@ -122,7 +137,7 @@ export default function SettingsPage({ onBack, onImported }: Props) {
     try {
       const r = await CheckDNSLeak()
       setDnsResult(r)
-    } catch {}
+    } catch (e) { fail(e) }
     setDnsLoading(false)
   }
 
@@ -132,7 +147,7 @@ export default function SettingsPage({ onBack, onImported }: Props) {
     try {
       const results = await BulkCheckProxies()
       setBulkResults(results || [])
-    } catch {}
+    } catch (e) { fail(e) }
     setBulkLoading(false)
   }
 
@@ -142,7 +157,7 @@ export default function SettingsPage({ onBack, onImported }: Props) {
       await EnableUWPSupport()
       setUwpDone(true)
       setTimeout(() => setUwpDone(false), 3000)
-    } catch {}
+    } catch (e) { fail(e) }
     setUwpLoading(false)
   }
 
@@ -152,7 +167,7 @@ export default function SettingsPage({ onBack, onImported }: Props) {
     try {
       const p = await ConnectFastest()
       setFastestResult(`${p.host}:${p.port} (${p.latency}ms)`)
-    } catch { setFastestResult('Failed') }
+    } catch (e) { fail(e) }
     setFastestLoading(false)
   }
 
@@ -171,6 +186,15 @@ export default function SettingsPage({ onBack, onImported }: Props) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
+        {notice && (
+          <div role="alert" className="flex items-start gap-2 px-3 py-2 rounded-lg border border-status-error/30 bg-status-error/10 text-[10px] text-text-primary">
+            <AlertTriangle size={12} className="text-status-error shrink-0 mt-px" />
+            <span className="flex-1 break-words">{t.actionFailed}: {notice}</span>
+            <button onClick={() => setNotice('')} aria-label={t.closeWindow} className="text-text-tertiary hover:text-text-primary">
+              <XCircle size={11} />
+            </button>
+          </div>
+        )}
         {/* Language */}
         <Section icon={<Globe size={13} />} title={t.language}>
           <div className="grid grid-cols-2 gap-1">
@@ -232,6 +256,10 @@ export default function SettingsPage({ onBack, onImported }: Props) {
             </div>
             {exportText && !importMode && (
               <div className="relative">
+                <p className="flex items-center gap-1.5 mb-1.5 text-[9px] text-status-connecting">
+                  <AlertTriangle size={10} className="shrink-0" />
+                  {t.exportWarning}
+                </p>
                 <textarea
                   readOnly
                   value={exportText}
@@ -241,7 +269,7 @@ export default function SettingsPage({ onBack, onImported }: Props) {
                 />
                 <button
                   onClick={() => {
-                    navigator.clipboard.writeText(exportText)
+                    copySecret(exportText).catch(fail)
                     setCopyDone(true)
                     setTimeout(() => setCopyDone(false), 1500)
                   }}
@@ -325,7 +353,7 @@ export default function SettingsPage({ onBack, onImported }: Props) {
                 </button>
               </div>
               {dnsResult && (
-                <div className={`flex items-center gap-1.5 text-[10px] ${dnsResult.leaked ? 'text-red-400' : 'text-[#68E045]'}`}>
+                <div className={`flex items-center gap-1.5 text-[10px] ${dnsResult.leaked ? 'text-status-error' : 'text-status-online'}`}>
                   {dnsResult.leaked ? <XCircle size={10} /> : <CheckCircle2 size={10} />}
                   {dnsResult.leaked ? t.leakDetected : t.noLeakDetected}
                   {dnsResult.proxyIp && <span className="text-text-tertiary ml-1">Proxy: {dnsResult.proxyIp}</span>}
@@ -357,18 +385,18 @@ export default function SettingsPage({ onBack, onImported }: Props) {
                 <div className="space-y-1 max-h-40 overflow-y-auto">
                   {bulkResults.map(r => (
                     <div key={r.id} className={`flex items-center justify-between px-2 py-1.5 rounded text-[10px] ${
-                      r.alive ? 'bg-[#68E045]/5' : 'bg-red-400/5'
+                      r.alive ? 'bg-status-online/5' : 'bg-status-error/5'
                     }`}>
                       <span className="font-mono text-text-secondary">{r.host}</span>
                       <div className="flex items-center gap-2">
                         {r.alive ? (
                           <>
-                            <span className="text-[#68E045]">{r.latency}ms</span>
+                            <span className="text-status-online">{r.latency}ms</span>
                             {r.country && <span className="text-text-tertiary">{r.country}</span>}
                             <span className="text-text-tertiary">{r.anonymity}</span>
                           </>
                         ) : (
-                          <span className="text-red-400">{r.error || 'Dead'}</span>
+                          <span className="text-status-error">{r.error || 'Dead'}</span>
                         )}
                       </div>
                     </div>
@@ -397,7 +425,7 @@ export default function SettingsPage({ onBack, onImported }: Props) {
               </button>
             </div>
             {fastestResult && (
-              <div className="text-[10px] text-[#68E045] flex items-center gap-1.5">
+              <div className="text-[10px] text-status-online flex items-center gap-1.5">
                 <CheckCircle2 size={10} />
                 {fastestResult}
               </div>
@@ -418,7 +446,7 @@ export default function SettingsPage({ onBack, onImported }: Props) {
                            text-text-secondary hover:text-text-primary hover:bg-surface-3
                            disabled:opacity-30 disabled:cursor-not-allowed transition-all"
               >
-                {uwpLoading ? <Loader2 size={10} className="animate-spin" /> : uwpDone ? <CheckCircle2 size={10} className="text-[#68E045]" /> : <MonitorSmartphone size={10} />}
+                {uwpLoading ? <Loader2 size={10} className="animate-spin" /> : uwpDone ? <CheckCircle2 size={10} className="text-status-online" /> : <MonitorSmartphone size={10} />}
                 {uwpDone ? t.enabled : t.enableUwp}
               </button>
             </div>
@@ -497,18 +525,18 @@ export default function SettingsPage({ onBack, onImported }: Props) {
               )}
               {mcpHealth === 'ok' && (
                 <div className="flex items-center justify-center gap-1.5">
-                  <CheckCircle2 size={11} className="text-[#68E045]" />
-                  <span className="text-[10px] text-[#68E045]">{t.mcpHealthOk}</span>
+                  <CheckCircle2 size={11} className="text-status-online" />
+                  <span className="text-[10px] text-status-online">{t.mcpHealthOk}</span>
                 </div>
               )}
               {mcpHealth === 'fail' && (
                 <div className="flex items-center justify-center gap-1.5">
-                  <XCircle size={11} className="text-red-400" />
-                  <span className="text-[10px] text-red-400">{mcpError || t.mcpHealthFail}</span>
+                  <XCircle size={11} className="text-status-error" />
+                  <span className="text-[10px] text-status-error">{mcpError || t.mcpHealthFail}</span>
                 </div>
               )}
               {mcpDone && (
-                <p className="text-[10px] text-amber-400">{t.mcpRestartClaude}</p>
+                <p className="text-[10px] text-status-connecting">{t.mcpRestartClaude}</p>
               )}
             </div>
           )}
@@ -520,13 +548,12 @@ export default function SettingsPage({ onBack, onImported }: Props) {
             <img src="/logo.png" alt="Proxy0x" className="h-12 mx-auto mb-3 logo-titlebar" draggable={false} />
             <p className="text-[10px] text-text-tertiary mt-1">{t.aboutDesc}</p>
             <div className="flex items-center justify-center gap-2 mt-1">
-              <span className="px-2 py-0.5 rounded bg-surface-3 text-[10px] font-mono text-text-tertiary">v1.0.0</span>
+              <span className="px-2 py-0.5 rounded bg-surface-3 text-[10px] font-mono text-text-tertiary">v{version || 'dev'}</span>
             </div>
             <div className="flex gap-1.5 justify-center mt-4">
               <a
                 href="https://github.com/henriqqw/proxy0x"
-                target="_blank"
-                rel="noopener noreferrer"
+                onClick={e => { e.preventDefault(); BrowserOpenURL('https://github.com/henriqqw/proxy0x') }}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] font-medium
                            bg-surface-2 border border-border-default text-text-secondary
                            hover:bg-surface-3 hover:text-text-primary transition-all"
@@ -536,14 +563,13 @@ export default function SettingsPage({ onBack, onImported }: Props) {
               </a>
               <a
                 href="https://github.com/henriqqw/proxy0x/issues/new"
-                target="_blank"
-                rel="noopener noreferrer"
+                onClick={e => { e.preventDefault(); BrowserOpenURL('https://github.com/henriqqw/proxy0x/issues/new') }}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] font-medium
                            bg-surface-4 border border-border-strong text-text-secondary shadow-[0_2px_6px_rgba(0,0,0,0.3)]
                            hover:bg-surface-5 hover:text-text-primary transition-all"
               >
-                <Bug size={12} className="text-red-400" />
-                Report Bug
+                <Bug size={12} className="text-status-error" />
+                {t.reportBug}
               </a>
             </div>
           </div>
@@ -573,16 +599,16 @@ function Section({ icon, title, desc, children }: {
   )
 }
 
-function formatInterval(seconds: number): string {
+function formatInterval(seconds: number, min: string): string {
   if (seconds < 60) return `${seconds}s`
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   if (m >= 60) {
     const h = Math.floor(m / 60)
     const rm = m % 60
-    return rm > 0 ? `${h}h ${rm}min` : `${h}h`
+    return rm > 0 ? `${h}h ${rm} ${min}` : `${h}h`
   }
-  return s > 0 ? `${m}min ${s}s` : `${m} min`
+  return s > 0 ? `${m} ${min} ${s}s` : `${m} ${min}`
 }
 
 function IntervalPicker({ presets, value, onChange }: {
@@ -590,26 +616,31 @@ function IntervalPicker({ presets, value, onChange }: {
   value: number
   onChange: (v: number) => void
 }) {
+  const { t } = useTranslation()
   const [customMode, setCustomMode] = useState(false)
   const [customMin, setCustomMin] = useState(1)
+  const [draft, setDraft] = useState('1')
   const isPreset = presets.some(p => p.value === value)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const openCustom = () => {
     const currentMin = Math.max(1, Math.round(value / 60))
     setCustomMin(currentMin)
+    setDraft(String(currentMin))
     setCustomMode(true)
   }
 
   const applyCustom = (min: number) => {
     const clamped = Math.max(1, Math.min(120, min))
     setCustomMin(clamped)
+    setDraft(String(clamped))
     onChange(clamped * 60)
   }
 
   const step = (delta: number) => {
     const next = Math.max(1, Math.min(120, customMin + delta))
     setCustomMin(next)
+    setDraft(String(next))
     onChange(next * 60)
   }
 
@@ -641,12 +672,19 @@ function IntervalPicker({ presets, value, onChange }: {
             autoFocus
             type="text"
             inputMode="numeric"
-            value={customMin}
-            onChange={e => {
-              const v = parseInt(e.target.value)
-              if (!isNaN(v)) applyCustom(v)
+            value={draft}
+            onChange={e => setDraft(e.target.value.replace(/\D/g, ''))}
+            onBlur={() => {
+              const v = parseInt(draft)
+              if (isNaN(v)) setDraft(String(customMin))
+              else applyCustom(v)
             }}
             onKeyDown={e => {
+              if (e.key === 'Enter') {
+                const v = parseInt(draft)
+                if (isNaN(v)) setDraft(String(customMin))
+                else applyCustom(v)
+              }
               if (e.key === 'ArrowUp') { e.preventDefault(); step(1) }
               if (e.key === 'ArrowDown') { e.preventDefault(); step(-1) }
               if (e.key === 'Escape') setCustomMode(false)
@@ -654,7 +692,7 @@ function IntervalPicker({ presets, value, onChange }: {
             className="w-8 h-full text-[11px] font-mono text-text-primary text-center bg-transparent
                        focus:outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
-          <span className="text-[10px] text-text-tertiary pr-2">min</span>
+          <span className="text-[10px] text-text-tertiary pr-2">{t.minutesShort}</span>
           <button
             onClick={() => step(1)}
             className="w-7 h-full flex items-center justify-center text-text-tertiary hover:text-text-primary hover:bg-surface-3 transition-colors"
@@ -671,7 +709,7 @@ function IntervalPicker({ presets, value, onChange }: {
               : 'bg-surface-2 text-text-secondary hover:text-text-primary hover:bg-surface-3 border border-transparent'
             }`}
         >
-          {!isPreset ? formatInterval(value) : 'Custom'}
+          {!isPreset ? formatInterval(value, t.minutesShort) : t.customInterval}
         </button>
       )}
     </div>
@@ -683,7 +721,7 @@ function Toggle({ active, onToggle }: { active: boolean; onToggle: () => void })
     <button
       onClick={onToggle}
       className={`relative w-9 h-5 rounded-full transition-colors ${
-        active ? 'bg-[#68E045]' : 'bg-surface-4'
+        active ? 'bg-status-online' : 'bg-surface-4'
       }`}
       aria-checked={active}
       role="switch"

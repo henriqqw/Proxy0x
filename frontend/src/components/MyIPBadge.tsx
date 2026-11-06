@@ -18,9 +18,12 @@ export default function MyIPBadge({ ip, onRefresh }: Props) {
     setTimeout(() => setSpinning(false), 1000)
   }
 
-  const masked = ip
-    ? ip.replace(/^(\d+)\.(.+)$/, (_, first, rest) => `${first}.${rest.replace(/\d/g, '●')}`)
-    : '...'
+  // IPv4 keeps its first octet; anything else (IPv6) is fully masked.
+  const masked = !ip
+    ? '...'
+    : /^\d+\.\d+\.\d+\.\d+$/.test(ip)
+      ? ip.replace(/^(\d+)\.(.+)$/, (_, first, rest) => `${first}.${rest.replace(/\d/g, '●')}`)
+      : ip.replace(/[0-9a-fA-F]/g, '●')
 
   return (
     <div className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-surface-1 border border-border-default animate-slide-down">
@@ -43,7 +46,8 @@ export default function MyIPBadge({ ip, onRefresh }: Props) {
         <button
           onClick={handleRefresh}
           className="p-1 rounded hover:bg-surface-4 transition-colors text-text-tertiary hover:text-text-secondary"
-          aria-label="Refresh IP"
+          aria-label={t.refreshIp}
+          title={t.refreshIp}
         >
           <RefreshCw size={10} className={spinning ? 'animate-spin' : ''} />
         </button>

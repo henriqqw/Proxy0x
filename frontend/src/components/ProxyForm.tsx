@@ -75,7 +75,7 @@ export default function ProxyForm({ onAdded }: Props) {
             className={`h-8 px-2.5 text-[9px] font-bold uppercase tracking-wider transition-all ${
               protocol === 'socks5'
                 ? 'bg-btn-accent text-btn-accent-text'
-                : 'bg-[#505050]/25 text-text-tertiary'
+                : 'bg-surface-5/25 text-text-tertiary'
             }`}
             title={t.protocol}
           >
@@ -85,8 +85,8 @@ export default function ProxyForm({ onAdded }: Props) {
             onClick={() => setProtocol('http')}
             className={`h-8 px-2.5 text-[9px] font-bold uppercase tracking-wider transition-all ${
               protocol === 'http'
-                ? 'bg-[#505050] text-[#d4d4d4]'
-                : 'bg-[#505050]/25 text-text-tertiary'
+                ? 'bg-surface-5 text-text-secondary'
+                : 'bg-surface-5/25 text-text-tertiary'
             }`}
             title={t.protocol}
           >

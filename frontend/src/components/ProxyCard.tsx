@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Power, X, RotateCw,
   Trash2, Copy, MapPin, Clock, Wifi, Server,
@@ -19,6 +19,7 @@ import FlagIcon from './FlagIcon'
 interface Props {
   proxy: main.ProxyEntry
   onRemoved: () => void
+  onError: (message: string) => void
 }
 
 function formatUptime(totalSeconds: number, connectedAt?: string): string {
@@ -36,9 +37,11 @@ function formatUptime(totalSeconds: number, connectedAt?: string): string {
   return `${hrs}h ${mins % 60}m`
 }
 
-export default function ProxyCard({ proxy, onRemoved }: Props) {
+export default function ProxyCard({ proxy, onRemoved, onError }: Props) {
   const { t } = useTranslation()
   const [busy, setBusy] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [, setTick] = useState(0)
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
   const [bench, setBench] = useState<{connectMs?: number; downloadMbps?: number} | null>(null)
@@ -68,10 +71,37 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
   const isActive = status === 'connected'
   const isConnecting = status === 'connecting'
 
+  // Re-render every second while connected so the uptime counter moves.
+  useEffect(() => {
+    if (!isActive || !proxy.connectedAt) return
+    const id = setInterval(() => setTick(n => n + 1), 1000)
+    return () => clearInterval(id)
+  }, [isActive, proxy.connectedAt])
+
   const action = async (name: string, fn: () => Promise<any>) => {
     setBusy(name)
-    try { await fn() } catch {}
+    try { await fn() } catch (e) { onError(String(e)) }
     setBusy(null)
+  }
+
+  const saveName = () => {
+    SetProxyName(proxy.id, nameInput.trim()).catch(e => onError(String(e)))
+    setEditName(false)
+  }
+
+  const saveGroup = () => {
+    SetProxyGroup(proxy.id, groupInput.trim()).catch(e => onError(String(e)))
+    setEditGroup(false)
+  }
+
+  const remove = async () => {
+    setConfirmDelete(false)
+    try {
+      await RemoveProxy(proxy.id)
+      onRemoved()
+    } catch (e) {
+      onError(String(e))
+    }
   }
 
   const copyIP = () => {
@@ -101,7 +131,7 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
               {...listeners}
               className="cursor-grab active:cursor-grabbing p-0.5 -ml-1 text-text-tertiary/30 hover:text-text-tertiary transition-colors touch-none"
               tabIndex={-1}
-              aria-label="Drag to reorder"
+              aria-label={t.dragToReorder}
             >
               <GripVertical size={12} />
             </button>
@@ -111,8 +141,8 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
                 autoFocus
                 value={nameInput}
                 onChange={e => setNameInput(e.target.value)}
-                onBlur={() => { SetProxyName(proxy.id, nameInput.trim()); setEditName(false) }}
-                onKeyDown={e => { if (e.key === 'Enter') { SetProxyName(proxy.id, nameInput.trim()); setEditName(false) } if (e.key === 'Escape') setEditName(false) }}
+                onBlur={saveName}
+                onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditName(false) }}
                 className="w-24 h-5 px-1.5 text-[10px] font-medium bg-surface-2 border border-border-strong rounded text-text-primary focus:outline-none"
                 placeholder={t.proxyName}
               />
@@ -129,7 +159,7 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
             <span className={`px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider rounded ${
               proxy.protocol === 'socks5'
                 ? 'bg-btn-accent text-btn-accent-text'
-                : 'bg-[#505050] text-[#d4d4d4]'
+                : 'bg-surface-5 text-text-secondary'
             }`}>
               {proxy.protocol === 'socks5' ? 'S5' : 'HTTP'}
             </span>
@@ -138,13 +168,22 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
                 {proxy.group}
               </span>
             )}
-            <button
-              onClick={() => { RemoveProxy(proxy.id); onRemoved() }}
-              className="p-1 rounded text-text-tertiary/40 hover:text-status-error hover:bg-surface-4 transition-all"
-              aria-label="Remove proxy"
-            >
-              <Trash2 size={11} />
-            </button>
+            {confirmDelete ? (
+              <span className="flex items-center gap-1 text-[9px] text-text-secondary">
+                {t.confirmDelete}
+                <button onClick={remove} className="px-1.5 py-0.5 rounded bg-status-error/15 text-status-error hover:bg-status-error/25">{t.yes}</button>
+                <button onClick={() => setConfirmDelete(false)} className="px-1.5 py-0.5 rounded bg-surface-3 hover:bg-surface-4">{t.no}</button>
+              </span>
+            ) : (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="p-1 rounded text-text-tertiary/40 hover:text-status-error hover:bg-surface-4 transition-all"
+                title={t.deleteProxy}
+                aria-label={t.deleteProxy}
+              >
+                <Trash2 size={11} />
+              </button>
+            )}
           </div>
         </div>
 
@@ -244,7 +283,7 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center justify-center py-1.5 border-t border-border-subtle
                    text-text-tertiary/40 hover:text-text-tertiary hover:bg-surface-3/60 transition-all"
-        aria-label={expanded ? 'Collapse details' : 'Expand details'}
+        aria-label={expanded ? t.collapseDetails : t.expandDetails}
       >
         <ChevronDown size={10} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
@@ -258,8 +297,8 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
                 autoFocus
                 value={nameInput}
                 onChange={e => setNameInput(e.target.value)}
-                onBlur={() => { SetProxyName(proxy.id, nameInput.trim()); setEditName(false) }}
-                onKeyDown={e => { if (e.key === 'Enter') { SetProxyName(proxy.id, nameInput.trim()); setEditName(false) } if (e.key === 'Escape') setEditName(false) }}
+                onBlur={saveName}
+                onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditName(false) }}
                 className="w-24 h-5 px-1.5 text-[10px] font-mono bg-surface-2 border border-border-strong rounded text-text-primary focus:outline-none text-right"
                 placeholder={t.proxyNamePlaceholder}
               />
@@ -279,8 +318,8 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
                 autoFocus
                 value={groupInput}
                 onChange={e => setGroupInput(e.target.value)}
-                onBlur={() => { SetProxyGroup(proxy.id, groupInput.trim()); setEditGroup(false) }}
-                onKeyDown={e => { if (e.key === 'Enter') { SetProxyGroup(proxy.id, groupInput.trim()); setEditGroup(false) } }}
+                onBlur={saveGroup}
+                onKeyDown={e => { if (e.key === 'Enter') saveGroup(); if (e.key === 'Escape') setEditGroup(false) }}
                 className="w-20 h-5 px-1.5 text-[10px] font-mono bg-surface-2 border border-border-strong rounded text-text-primary focus:outline-none text-right"
               />
             ) : (
