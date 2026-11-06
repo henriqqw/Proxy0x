@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"proxy_ui/internal/crypto"
+	"proxy_ui/internal/proxy"
 )
 
 type fakeSysProxy struct {
@@ -108,6 +110,44 @@ func addTestProxy(t *testing.T, a *App, host, port string) *ProxyEntry {
 		t.Fatal(err)
 	}
 	return p
+}
+
+func failingLocalServer(proxy.UpstreamConfig) (*proxy.LocalServer, error) {
+	return nil, errors.New("listen failed")
+}
+
+func TestLocalServerStartFailureFailsConnect(t *testing.T) {
+	a, sys := newTestApp(t)
+	_, host, port := startFakeUpstream(t)
+	p := addTestProxy(t, a, host, port)
+	a.newLocalServer = failingLocalServer
+
+	if _, err := a.ConnectProxy(p.ID); err == nil {
+		t.Fatal("connect should fail when the local proxy cannot start")
+	}
+	if p.Status != StatusError || p.Active {
+		t.Fatalf("status=%s active=%v, want error/false", p.Status, p.Active)
+	}
+	if a.localProxy != nil || sys.isEnabled() {
+		t.Fatal("no local proxy or system proxy should be left behind")
+	}
+}
+
+func TestRotateWithLocalServerFailureDoesNotPanicOnDisconnect(t *testing.T) {
+	a, sys := newTestApp(t)
+	_, host, port := startFakeUpstream(t)
+	p := addTestProxy(t, a, host, port)
+	if _, err := a.ConnectProxy(p.ID); err != nil {
+		t.Fatal(err)
+	}
+	a.newLocalServer = failingLocalServer
+
+	a.RotateProxy(p.ID)
+	a.DisconnectProxy(p.ID) // used to panic: close of closed channel
+
+	if a.localProxy != nil || sys.isEnabled() {
+		t.Fatal("no local proxy or system proxy should be left behind")
+	}
 }
 
 func TestGetOrCreateClientIsSafeForConcurrentReaders(t *testing.T) {

@@ -595,21 +595,42 @@ func (a *App) toUpstreamConfig(p *ProxyEntry) proxy.UpstreamConfig {
 	}
 }
 
-func (a *App) setLocalProxy(p *ProxyEntry, id string) {
+func (a *App) setLocalProxy(p *ProxyEntry, id string) error {
 	a.lpMu.Lock()
 	defer a.lpMu.Unlock()
 
 	if a.localProxy != nil {
 		a.localProxy.Stop()
+		a.localProxy = nil
 		a.sysproxy.Clear()
 	}
 
 	ls, err := a.newLocalServer(a.toUpstreamConfig(p))
-	if err == nil {
-		a.localProxy = ls
-		a.sysproxy.Set(ls.Port())
-		a.addLog("system-proxy", id, p.Host+":"+p.Port, fmt.Sprintf("local proxy on port %d", ls.Port()))
+	if err != nil {
+		return fmt.Errorf("start local proxy: %w", err)
 	}
+	if err := a.sysproxy.Set(ls.Port()); err != nil {
+		ls.Stop()
+		return fmt.Errorf("set system proxy: %w", err)
+	}
+	a.localProxy = ls
+	a.addLog("system-proxy", id, p.Host+":"+p.Port, fmt.Sprintf("local proxy on port %d", ls.Port()))
+	return nil
+}
+
+// failLocalProxy marks p as failed after its local proxy could not be (re)started.
+func (a *App) failLocalProxy(p *ProxyEntry, id, action string, err error) (*ProxyEntry, error) {
+	a.mu.Lock()
+	p.Status = StatusError
+	p.Active = false
+	p.CurrentIP = ""
+	p.Location = nil
+	p.ConnectedAt = ""
+	p.LastCheck = time.Now().Format(time.RFC3339)
+	a.mu.Unlock()
+	a.addLog(action+"-failed", id, p.Host+":"+p.Port, err.Error())
+	a.emitEvent("proxy-updated", p)
+	return p, err
 }
 
 func (a *App) clearLocalProxyIf(id string) {
@@ -675,6 +696,10 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 
 	geo := a.fetchGeoInfo(client, ipResult.IP)
 
+	if err := a.setLocalProxy(p, id); err != nil {
+		return a.failLocalProxy(p, id, "connect", err)
+	}
+
 	a.mu.Lock()
 	p.Status = StatusConnected
 	p.CurrentIP = ipResult.IP
@@ -686,8 +711,6 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 	a.mu.Unlock()
 
 	a.addLog("connected", id, p.Host+":"+p.Port, fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
-	a.setLocalProxy(p, id)
-
 	a.emitEvent("proxy-updated", p)
 	return p, nil
 }
@@ -767,9 +790,11 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 	p.LastCheck = time.Now().Format(time.RFC3339)
 	a.mu.Unlock()
 
-	a.addLog("rotated", id, p.Host+":"+p.Port, fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
-	a.setLocalProxy(p, id)
+	if err := a.setLocalProxy(p, id); err != nil {
+		return a.failLocalProxy(p, id, "rotate", err)
+	}
 
+	a.addLog("rotated", id, p.Host+":"+p.Port, fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
 	a.emitEvent("proxy-updated", p)
 	return p, nil
 }
