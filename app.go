@@ -233,6 +233,7 @@ func (a *App) saveProxies() {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	clearSystemProxy()
 	a.loadProxies()
 	go a.setupTray()
 	go a.healthCheckLoop()
@@ -256,6 +257,11 @@ func (a *App) CloseWindow() {
 }
 
 func (a *App) QuitApp() {
+	if a.localProxy != nil {
+		a.localProxy.stop()
+		a.localProxy = nil
+	}
+	clearSystemProxy()
 	runtime.Quit(a.ctx)
 }
 
