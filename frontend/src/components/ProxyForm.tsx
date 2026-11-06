@@ -70,7 +70,7 @@ export default function ProxyForm({ onAdded }: Props) {
       initial={{ opacity: 0, y: -4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.05 }}
-      className="space-y-2"
+      className="space-y-1.5"
     >
       <div className="flex gap-1.5">
         <div className="flex-1 relative">

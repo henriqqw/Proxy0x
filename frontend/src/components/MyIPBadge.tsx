@@ -25,7 +25,7 @@ export default function MyIPBadge({ ip, onRefresh }: Props) {
     <motion.div
       initial={{ opacity: 0, y: -4 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-1 border border-border-default"
+      className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-surface-1 border border-border-default"
     >
       <div className="flex items-center gap-2">
         <Globe size={12} className="text-accent/50" />

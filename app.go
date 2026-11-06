@@ -70,13 +70,14 @@ type LogEntry struct {
 }
 
 type App struct {
-	ctx     context.Context
-	proxies map[string]*ProxyEntry
-	clients map[string]*http.Client
-	mu      sync.RWMutex
-	stopCh  chan struct{}
-	logs    []LogEntry
-	logMu   sync.RWMutex
+	ctx        context.Context
+	proxies    map[string]*ProxyEntry
+	clients    map[string]*http.Client
+	mu         sync.RWMutex
+	stopCh     chan struct{}
+	logs       []LogEntry
+	logMu      sync.RWMutex
+	localProxy *LocalProxy
 }
 
 func NewApp() *App {
@@ -238,6 +239,11 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	if a.localProxy != nil {
+		a.localProxy.stop()
+		a.localProxy = nil
+		clearSystemProxy()
+	}
 	close(a.stopCh)
 }
 
@@ -472,6 +478,18 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 	a.mu.Unlock()
 
 	a.addLog("connected", id, proxy.Host+":"+proxy.Port, fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
+
+	if a.localProxy != nil {
+		a.localProxy.stop()
+		clearSystemProxy()
+	}
+	lp, lpErr := newLocalProxy(proxy)
+	if lpErr == nil {
+		a.localProxy = lp
+		setSystemProxy(lp.port)
+		a.addLog("system-proxy", id, proxy.Host+":"+proxy.Port, fmt.Sprintf("local proxy on port %d", lp.port))
+	}
+
 	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
 	return proxy, nil
 }
@@ -495,6 +513,12 @@ func (a *App) DisconnectProxy(id string) (*ProxyEntry, error) {
 	proxy.ConnectedAt = ""
 	delete(a.clients, id+":"+proxy.SessionID)
 	a.mu.Unlock()
+
+	if a.localProxy != nil && a.localProxy.upstream.ID == id {
+		a.localProxy.stop()
+		a.localProxy = nil
+		clearSystemProxy()
+	}
 
 	a.addLog("disconnected", id, proxy.Host+":"+proxy.Port, "")
 	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
@@ -549,6 +573,16 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 	a.mu.Unlock()
 
 	a.addLog("rotated", id, proxy.Host+":"+proxy.Port, fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
+
+	if a.localProxy != nil && a.localProxy.upstream.ID == id {
+		a.localProxy.stop()
+		lp, lpErr := newLocalProxy(proxy)
+		if lpErr == nil {
+			a.localProxy = lp
+			setSystemProxy(lp.port)
+		}
+	}
+
 	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
 	return proxy, nil
 }
