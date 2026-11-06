@@ -15,6 +15,8 @@ import (
 
 	"proxy_ui/internal/crypto"
 	"proxy_ui/internal/proxy"
+
+	netproxy "golang.org/x/net/proxy"
 )
 
 type fakeSysProxy struct {
@@ -262,6 +264,23 @@ func TestSOCKS5DialHonorsContext(t *testing.T) {
 			t.Error("dial through a silent SOCKS5 upstream should fail")
 		}
 	})
+}
+
+func TestSOCKS5ErrorNeverFallsBackToDirect(t *testing.T) {
+	a, _ := newTestApp(t)
+	old := newSOCKS5
+	newSOCKS5 = func(string, string, *netproxy.Auth, netproxy.Dialer) (netproxy.Dialer, error) {
+		return nil, errors.New("bad socks config")
+	}
+	t.Cleanup(func() { newSOCKS5 = old })
+	target, port := silentListener(t) // reachable directly: a fallback would connect
+	p := &ProxyEntry{ID: "s", Host: "127.0.0.1", Port: "1", Protocol: "socks5", SessionID: "x"}
+	tr := a.getOrCreateClient(p).Transport.(*http.Transport)
+
+	if c, err := tr.DialContext(context.Background(), "tcp", net.JoinHostPort(target, port)); err == nil {
+		c.Close()
+		t.Fatal("SOCKS5 setup error must fail the dial, not connect directly (would leak the real IP)")
+	}
 }
 
 func TestGetMyIPTimesOut(t *testing.T) {

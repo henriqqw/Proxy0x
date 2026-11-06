@@ -43,11 +43,12 @@ func BuildHTTPClient(p *ProxyEntry) *http.Client {
 			auth = &netproxy.Auth{User: username, Password: p.Password}
 		}
 		dialer, err := netproxy.SOCKS5("tcp", net.JoinHostPort(p.Host, p.Port), auth, netproxy.Direct)
-		if err != nil {
-			dialer = netproxy.Direct
-		}
 		transport = &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				if err != nil {
+					// Never fall back to a direct connection: it would expose the real IP.
+					return nil, fmt.Errorf("socks5 setup: %w", err)
+				}
 				return dialer.Dial(network, addr)
 			},
 			TLSHandshakeTimeout: 10 * time.Second,

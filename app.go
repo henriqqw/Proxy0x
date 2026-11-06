@@ -552,9 +552,11 @@ func (a *App) getOrCreateClient(p *ProxyEntry) *http.Client {
 		var dialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 		dialer, err := newSOCKS5("tcp", net.JoinHostPort(p.Host, p.Port), auth, &net.Dialer{Timeout: 15 * time.Second})
 		if err != nil {
-			dialer = netproxy.Direct
-		}
-		if cd, ok := dialer.(netproxy.ContextDialer); ok {
+			// Never fall back to a direct connection: it would expose the real IP.
+			dialContext = func(context.Context, string, string) (net.Conn, error) {
+				return nil, fmt.Errorf("socks5 setup: %w", err)
+			}
+		} else if cd, ok := dialer.(netproxy.ContextDialer); ok {
 			dialContext = cd.DialContext
 		} else {
 			dialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
