@@ -77,6 +77,10 @@ export default function App() {
             ))
           )}
         </AnimatePresence>
+
+      </div>
+      <div className="shrink-0 flex items-center justify-center py-3 border-t border-border-subtle">
+        <img src="/logo.png" alt="Proxy0x" className="h-7 opacity-[0.15]" draggable={false} />
       </div>
     </div>
   )

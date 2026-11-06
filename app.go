@@ -10,6 +10,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -69,8 +71,51 @@ func NewApp() *App {
 	}
 }
 
+func (a *App) dataDir() string {
+	dir, _ := os.UserConfigDir()
+	return filepath.Join(dir, "Proxy0x")
+}
+
+func (a *App) dataFile() string {
+	return filepath.Join(a.dataDir(), "proxies.json")
+}
+
+func (a *App) loadProxies() {
+	data, err := os.ReadFile(a.dataFile())
+	if err != nil {
+		return
+	}
+	var entries []*ProxyEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return
+	}
+	a.mu.Lock()
+	for _, p := range entries {
+		p.Status = StatusOffline
+		p.Active = false
+		p.CurrentIP = ""
+		p.Latency = 0
+		a.proxies[p.ID] = p
+	}
+	a.mu.Unlock()
+}
+
+func (a *App) saveProxies() {
+	a.mu.RLock()
+	entries := make([]*ProxyEntry, 0, len(a.proxies))
+	for _, p := range a.proxies {
+		entries = append(entries, p)
+	}
+	a.mu.RUnlock()
+
+	os.MkdirAll(a.dataDir(), 0o755)
+	data, _ := json.MarshalIndent(entries, "", "  ")
+	os.WriteFile(a.dataFile(), data, 0o644)
+}
+
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.loadProxies()
 	go a.setupTray()
 	go a.healthCheckLoop()
 }
@@ -155,6 +200,7 @@ func (a *App) AddProxy(raw string) (*ProxyEntry, error) {
 	a.proxies[proxy.ID] = proxy
 	a.mu.Unlock()
 
+	a.saveProxies()
 	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
 	return proxy, nil
 }
@@ -178,6 +224,7 @@ func (a *App) AddProxiesBatch(raw string) ([]*ProxyEntry, error) {
 		added = append(added, proxy)
 	}
 
+	a.saveProxies()
 	runtime.EventsEmit(a.ctx, "proxies-changed")
 	return added, nil
 }
@@ -186,6 +233,7 @@ func (a *App) RemoveProxy(id string) {
 	a.mu.Lock()
 	delete(a.proxies, id)
 	a.mu.Unlock()
+	a.saveProxies()
 	runtime.EventsEmit(a.ctx, "proxies-changed")
 }
 
@@ -352,7 +400,48 @@ func (a *App) RestartProxy(id string) (*ProxyEntry, error) {
 }
 
 func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
-	return a.ConnectProxy(id)
+	a.mu.RLock()
+	proxy, ok := a.proxies[id]
+	if !ok {
+		a.mu.RUnlock()
+		return nil, fmt.Errorf("proxy not found")
+	}
+	a.mu.RUnlock()
+
+	client := a.getHTTPClient(proxy)
+
+	start := time.Now()
+	resp, err := client.Get("https://api.ipify.org?format=json")
+	latency := time.Since(start).Milliseconds()
+
+	if err != nil {
+		a.mu.Lock()
+		proxy.Status = StatusError
+		proxy.LastCheck = time.Now().Format(time.RFC3339)
+		a.mu.Unlock()
+		runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
+		return proxy, nil
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var ipResult struct {
+		IP string `json:"ip"`
+	}
+	json.Unmarshal(body, &ipResult)
+
+	a.mu.Lock()
+	proxy.Latency = latency
+	proxy.LastCheck = time.Now().Format(time.RFC3339)
+	if ipResult.IP != "" && ipResult.IP != proxy.CurrentIP {
+		proxy.CurrentIP = ipResult.IP
+		geo := a.fetchGeoInfo(client, ipResult.IP)
+		proxy.Location = geo
+	}
+	a.mu.Unlock()
+
+	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
+	return proxy, nil
 }
 
 func (a *App) fetchGeoInfo(client *http.Client, ip string) *GeoInfo {

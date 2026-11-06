@@ -7,12 +7,8 @@ export default function TitleBar() {
       className="flex items-center justify-between h-10 px-3 bg-surface-1/80 border-b border-border-default shrink-0 backdrop-blur-sm"
       style={{ '--wails-draggable': 'drag' } as React.CSSProperties}
     >
-      <div className="flex items-center gap-2">
-        <img src="/icon-64.png" alt="" className="w-5 h-5" draggable={false} />
-        <span className="text-[11px] font-semibold tracking-wide">
-          <span className="text-text-secondary">Proxy</span>
-          <span className="text-accent">0x</span>
-        </span>
+      <div className="flex items-center">
+        <img src="/logo.png" alt="Proxy0x" className="h-4" draggable={false} />
       </div>
       <div className="flex items-center gap-0.5 no-drag">
         <button
