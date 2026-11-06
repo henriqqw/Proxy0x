@@ -1,5 +1,7 @@
 # Proxy0x
 
+<p align="center"><img src="assets/branding/proxy0x-banner.png" alt="Proxy0x — gerenciador de proxies" width="100%"></p>
+
 <p align="center">
   <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go 1.26"></a>
   <a href="https://wails.io/"><img src="https://img.shields.io/badge/Wails-2.16-DF0000?style=flat-square" alt="Wails 2.16"></a>
