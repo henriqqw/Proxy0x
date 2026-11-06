@@ -1,0 +1,15 @@
+{
+  "fixed": {
+    "file_version": "1.0.0"
+  },
+  "info": {
+    "0000": {
+      "FileDescription": "ProxyUI - Proxy Manager",
+      "ProductName": "ProxyUI",
+      "CompanyName": "",
+      "LegalCopyright": "",
+      "FileVersion": "v1.0.0",
+      "ProductVersion": "v1.0.0"
+    }
+  }
+}
