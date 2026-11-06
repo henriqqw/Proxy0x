@@ -52,12 +52,37 @@ All public methods on the `App` struct in `app.go` are exposed to the React fron
 | `GetTheme` | — | `string` | Current theme (`dark` or `light`). |
 | `SetTheme` | `theme string` | — | Change theme. |
 
+## Security
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `GetKillSwitch` | — | `bool` | Whether the kill switch (firewall rules) is active. |
+| `SetKillSwitch` | `enabled bool` | — | Enable/disable kill switch. Blocks all traffic except through the proxy app. Requires UAC elevation. |
+| `GetAutoFailover` | — | `bool` | Whether auto-failover is enabled. |
+| `SetAutoFailover` | `enabled bool` | — | Enable/disable auto-failover. On proxy drop, connects to the next best proxy automatically. |
+
+## Tools
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `CheckDNSLeak` | `id string` | `DNSLeakResult` | Compare exit IP through proxy vs direct IP. Detects DNS leaks. |
+| `BulkCheckProxies` | — | `[]BulkCheckResult` | Test all proxies in parallel (10 workers). Returns latency, anonymity level, status. |
+| `ConnectFastest` | — | `string` | Run health checks on all proxies, connect the one with lowest latency. Returns proxy ID. |
+| `EnableUWPSupport` | — | — | Run `CheckNetIsolation` to exempt UWP/Store apps from loopback restrictions. Requires UAC elevation. |
+
+## Proxy Naming
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `SetProxyName` | `id string, name string` | `ProxyEntry` | Assign a custom display name to a proxy. |
+
 ## Import / Export
 
 | Method | Parameters | Returns | Description |
 |--------|------------|---------|-------------|
 | `ExportProxies` | — | `string` | All proxies as `host:port:user:pass` text, one per line. |
-| `AddProxiesBatch` | `text string` | `[]ProxyEntry` | Import from multi-line text. |
+| `AddProxiesBatch` | `text string` | `[]ProxyEntry` | Import from multi-line text (legacy, one per line). |
+| `AddProxiesMultiFormat` | `text string` | `[]ProxyEntry` | Import from multi-format text: `socks5://user:pass@host:port` URI, CSV, or `host:port:user:pass`. |
 
 ## MCP Integration
 
@@ -104,6 +129,7 @@ type ProxyEntry struct {
     Password    string      `json:"password"`
     Protocol    string      `json:"protocol"`       // "http" or "socks5"
     Group       string      `json:"group"`
+    Name        string      `json:"name"`            // custom display name
     Status      ProxyStatus `json:"status"`          // offline|connecting|connected|error
     CurrentIP   string      `json:"currentIp"`
     Location    *GeoInfo    `json:"location"`
@@ -114,6 +140,30 @@ type ProxyEntry struct {
     Order       int         `json:"order"`
     ConnectedAt string      `json:"connectedAt"`
     TotalUptime int64       `json:"totalUptime"`     // seconds
+}
+```
+
+### DNSLeakResult
+
+```go
+type DNSLeakResult struct {
+    ProxyIP  string `json:"proxyIp"`
+    DirectIP string `json:"directIp"`
+    Leaking  bool   `json:"leaking"`
+}
+```
+
+### BulkCheckResult
+
+```go
+type BulkCheckResult struct {
+    ID        string `json:"id"`
+    Host      string `json:"host"`
+    Port      string `json:"port"`
+    Status    string `json:"status"`    // "ok" or "fail"
+    Latency   int64  `json:"latency"`   // ms
+    Anonymity string `json:"anonymity"` // "transparent", "anonymous", "elite"
+    Error     string `json:"error,omitempty"`
 }
 ```
 

@@ -4,15 +4,23 @@ import {main} from '../models';
 
 export function AddProxiesBatch(arg1:string):Promise<Array<main.ProxyEntry>>;
 
+export function AddProxiesMultiFormat(arg1:string):Promise<Array<main.ProxyEntry>>;
+
 export function AddProxy(arg1:string):Promise<main.ProxyEntry>;
 
 export function BenchmarkProxy(arg1:string):Promise<Record<string, any>>;
+
+export function BulkCheckProxies():Promise<Array<main.BulkCheckResult>>;
+
+export function CheckDNSLeak():Promise<main.DNSLeakResult>;
 
 export function CheckHealth(arg1:string):Promise<main.ProxyEntry>;
 
 export function CheckMCPHealth():Promise<main.MCPStatus>;
 
 export function CloseWindow():Promise<void>;
+
+export function ConnectFastest():Promise<main.ProxyEntry>;
 
 export function ConnectGroup(arg1:string):Promise<void>;
 
@@ -22,7 +30,11 @@ export function DisconnectGroup(arg1:string):Promise<void>;
 
 export function DisconnectProxy(arg1:string):Promise<main.ProxyEntry>;
 
+export function EnableUWPSupport():Promise<void>;
+
 export function ExportProxies():Promise<string>;
+
+export function GetAutoFailover():Promise<boolean>;
 
 export function GetAutoRotateInterval():Promise<number>;
 
@@ -31,6 +43,8 @@ export function GetConnectionLog():Promise<Array<main.LogEntry>>;
 export function GetGroups():Promise<Array<string>>;
 
 export function GetHealthCheckInterval():Promise<number>;
+
+export function GetKillSwitch():Promise<boolean>;
 
 export function GetLanguage():Promise<string>;
 
@@ -56,13 +70,19 @@ export function RestartProxy(arg1:string):Promise<main.ProxyEntry>;
 
 export function RotateProxy(arg1:string):Promise<main.ProxyEntry>;
 
+export function SetAutoFailover(arg1:boolean):Promise<void>;
+
 export function SetAutoRotateInterval(arg1:number):Promise<void>;
 
 export function SetHealthCheckInterval(arg1:number):Promise<void>;
 
+export function SetKillSwitch(arg1:boolean):Promise<void>;
+
 export function SetLanguage(arg1:string):Promise<void>;
 
 export function SetProxyGroup(arg1:string,arg2:string):Promise<main.ProxyEntry>;
+
+export function SetProxyName(arg1:string,arg2:string):Promise<main.ProxyEntry>;
 
 export function SetTheme(arg1:string):Promise<void>;
 

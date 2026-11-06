@@ -1,10 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, RotateCw, Activity, Download, Upload, Globe, ClipboardCopy, Check, Minus, Plus, Github, Bug, Bot, Loader2, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, RotateCw, Activity, Download, Upload, Globe, ClipboardCopy, Check, Minus, Plus, Github, Bug, Bot, Loader2, CheckCircle2, XCircle, AlertTriangle, Shield, Zap, Search, MonitorSmartphone, Wrench } from 'lucide-react'
 import {
   GetAutoRotateInterval, SetAutoRotateInterval,
-  ExportProxies, AddProxiesBatch,
+  ExportProxies, AddProxiesBatch, AddProxiesMultiFormat,
   GetMCPStatus, InstallMCPClient, UninstallMCPClient, CheckMCPHealth,
+  GetKillSwitch, SetKillSwitch,
+  GetAutoFailover, SetAutoFailover,
+  CheckDNSLeak, BulkCheckProxies, EnableUWPSupport, ConnectFastest,
 } from 'wailsjs/go/main/App'
+import { main } from 'wailsjs/go/models'
 import { languages } from '../i18n/translations'
 import { useTranslation } from '../i18n/LanguageContext'
 
@@ -46,9 +50,21 @@ export default function SettingsPage({ onBack, onImported }: Props) {
   const [mcpHealth, setMcpHealth] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle')
   const [mcpError, setMcpError] = useState('')
   const [mcpDone, setMcpDone] = useState(false)
+  const [killSwitch, setKillSwitchState] = useState(false)
+  const [autoFailover, setAutoFailoverState] = useState(false)
+  const [dnsResult, setDnsResult] = useState<main.DNSLeakResult | null>(null)
+  const [dnsLoading, setDnsLoading] = useState(false)
+  const [bulkResults, setBulkResults] = useState<main.BulkCheckResult[]>([])
+  const [bulkLoading, setBulkLoading] = useState(false)
+  const [uwpLoading, setUwpLoading] = useState(false)
+  const [uwpDone, setUwpDone] = useState(false)
+  const [fastestLoading, setFastestLoading] = useState(false)
+  const [fastestResult, setFastestResult] = useState<string>('')
 
   useEffect(() => {
     GetAutoRotateInterval().then(setAutoRotate).catch(() => {})
+    GetKillSwitch().then(setKillSwitchState).catch(() => {})
+    GetAutoFailover().then(setAutoFailoverState).catch(() => {})
     GetMCPStatus().then(s => {
       setMcpExeExists(s.exeExists)
       setMcpClients((s.clients || []).map((c: any) => ({ id: c.id, name: c.name, detected: c.detected, installed: c.installed })))
@@ -81,12 +97,62 @@ export default function SettingsPage({ onBack, onImported }: Props) {
     if (!importText.trim()) return
     setImporting(true)
     try {
-      await AddProxiesBatch(importText.trim())
+      await AddProxiesMultiFormat(importText.trim())
       setImportText('')
       setImportMode(false)
       onImported()
     } catch {}
     setImporting(false)
+  }
+
+  const handleKillSwitch = async (enabled: boolean) => {
+    setKillSwitchState(enabled)
+    try { await SetKillSwitch(enabled) } catch { setKillSwitchState(!enabled) }
+  }
+
+  const handleAutoFailover = async (enabled: boolean) => {
+    setAutoFailoverState(enabled)
+    try { await SetAutoFailover(enabled) } catch { setAutoFailoverState(!enabled) }
+  }
+
+  const handleDnsTest = async () => {
+    setDnsLoading(true)
+    setDnsResult(null)
+    try {
+      const r = await CheckDNSLeak()
+      setDnsResult(r)
+    } catch {}
+    setDnsLoading(false)
+  }
+
+  const handleBulkCheck = async () => {
+    setBulkLoading(true)
+    setBulkResults([])
+    try {
+      const results = await BulkCheckProxies()
+      setBulkResults(results || [])
+    } catch {}
+    setBulkLoading(false)
+  }
+
+  const handleUwp = async () => {
+    setUwpLoading(true)
+    try {
+      await EnableUWPSupport()
+      setUwpDone(true)
+      setTimeout(() => setUwpDone(false), 3000)
+    } catch {}
+    setUwpLoading(false)
+  }
+
+  const handleConnectFastest = async () => {
+    setFastestLoading(true)
+    setFastestResult('')
+    try {
+      const p = await ConnectFastest()
+      setFastestResult(`${p.host}:${p.port} (${p.latency}ms)`)
+    } catch { setFastestResult('Failed') }
+    setFastestLoading(false)
   }
 
   return (
@@ -193,12 +259,13 @@ export default function SettingsPage({ onBack, onImported }: Props) {
                 <textarea
                   value={importText}
                   onChange={e => setImportText(e.target.value)}
-                  placeholder="host:port:user:pass"
+                  placeholder="host:port:user:pass&#10;socks5://user:pass@host:port&#10;host,port,user,pass,socks5"
                   rows={4}
                   className="w-full px-3 py-2 text-xs leading-relaxed font-mono bg-surface-2 border border-border-default rounded
                              text-text-primary placeholder:text-text-tertiary resize-none
                              focus:outline-none focus:border-border-strong transition-all"
                 />
+                <p className="text-[9px] text-text-tertiary">{t.multiFormatHint}</p>
                 <button
                   onClick={handleImport}
                   disabled={importing || !importText.trim()}
@@ -210,6 +277,150 @@ export default function SettingsPage({ onBack, onImported }: Props) {
                 </button>
               </div>
             )}
+          </div>
+        </Section>
+
+        {/* Security */}
+        <Section icon={<Shield size={13} />} title={t.security}>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-medium text-text-primary">{t.killSwitch}</div>
+                <div className="text-[9px] text-text-tertiary mt-0.5">{t.killSwitchDesc}</div>
+              </div>
+              <Toggle active={killSwitch} onToggle={() => handleKillSwitch(!killSwitch)} />
+            </div>
+            <div className="border-t border-border-subtle" />
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-medium text-text-primary">{t.autoFailover}</div>
+                <div className="text-[9px] text-text-tertiary mt-0.5">{t.autoFailoverDesc}</div>
+              </div>
+              <Toggle active={autoFailover} onToggle={() => handleAutoFailover(!autoFailover)} />
+            </div>
+          </div>
+        </Section>
+
+        {/* Tools */}
+        <Section icon={<Wrench size={13} />} title={t.tools}>
+          <div className="space-y-3">
+            {/* DNS Leak Test */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div>
+                  <div className="text-[11px] font-medium text-text-primary">{t.dnsLeakTest}</div>
+                  <div className="text-[9px] text-text-tertiary mt-0.5">{t.dnsLeakTestDesc}</div>
+                </div>
+                <button
+                  onClick={handleDnsTest}
+                  disabled={dnsLoading}
+                  className="h-7 px-3 flex items-center gap-1.5 text-[10px] font-medium
+                             bg-surface-2 border border-border-default rounded
+                             text-text-secondary hover:text-text-primary hover:bg-surface-3
+                             disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                >
+                  {dnsLoading ? <Loader2 size={10} className="animate-spin" /> : <Search size={10} />}
+                  {t.runTest}
+                </button>
+              </div>
+              {dnsResult && (
+                <div className={`flex items-center gap-1.5 text-[10px] ${dnsResult.leaked ? 'text-red-400' : 'text-[#68E045]'}`}>
+                  {dnsResult.leaked ? <XCircle size={10} /> : <CheckCircle2 size={10} />}
+                  {dnsResult.leaked ? t.leakDetected : t.noLeakDetected}
+                  {dnsResult.proxyIp && <span className="text-text-tertiary ml-1">Proxy: {dnsResult.proxyIp}</span>}
+                </div>
+              )}
+            </div>
+            <div className="border-t border-border-subtle" />
+
+            {/* Bulk Check */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div>
+                  <div className="text-[11px] font-medium text-text-primary">{t.bulkCheck}</div>
+                  <div className="text-[9px] text-text-tertiary mt-0.5">{t.bulkCheckDesc}</div>
+                </div>
+                <button
+                  onClick={handleBulkCheck}
+                  disabled={bulkLoading}
+                  className="h-7 px-3 flex items-center gap-1.5 text-[10px] font-medium
+                             bg-surface-2 border border-border-default rounded
+                             text-text-secondary hover:text-text-primary hover:bg-surface-3
+                             disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                >
+                  {bulkLoading ? <Loader2 size={10} className="animate-spin" /> : <Activity size={10} />}
+                  {bulkLoading ? t.running : t.runTest}
+                </button>
+              </div>
+              {bulkResults.length > 0 && (
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {bulkResults.map(r => (
+                    <div key={r.id} className={`flex items-center justify-between px-2 py-1.5 rounded text-[10px] ${
+                      r.alive ? 'bg-[#68E045]/5' : 'bg-red-400/5'
+                    }`}>
+                      <span className="font-mono text-text-secondary">{r.host}</span>
+                      <div className="flex items-center gap-2">
+                        {r.alive ? (
+                          <>
+                            <span className="text-[#68E045]">{r.latency}ms</span>
+                            {r.country && <span className="text-text-tertiary">{r.country}</span>}
+                            <span className="text-text-tertiary">{r.anonymity}</span>
+                          </>
+                        ) : (
+                          <span className="text-red-400">{r.error || 'Dead'}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="border-t border-border-subtle" />
+
+            {/* Connect Fastest */}
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-medium text-text-primary">{t.connectFastest}</div>
+                <div className="text-[9px] text-text-tertiary mt-0.5">{t.connectFastestDesc}</div>
+              </div>
+              <button
+                onClick={handleConnectFastest}
+                disabled={fastestLoading}
+                className="h-7 px-3 flex items-center gap-1.5 text-[10px] font-medium
+                           bg-btn-accent border border-transparent rounded
+                           text-btn-accent-text hover:bg-btn-accent-hover font-semibold
+                           disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+              >
+                {fastestLoading ? <Loader2 size={10} className="animate-spin" /> : <Zap size={10} />}
+                {fastestLoading ? t.running : t.connectFastest}
+              </button>
+            </div>
+            {fastestResult && (
+              <div className="text-[10px] text-[#68E045] flex items-center gap-1.5">
+                <CheckCircle2 size={10} />
+                {fastestResult}
+              </div>
+            )}
+            <div className="border-t border-border-subtle" />
+
+            {/* UWP Support */}
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-medium text-text-primary">{t.uwpSupport}</div>
+                <div className="text-[9px] text-text-tertiary mt-0.5">{t.uwpSupportDesc}</div>
+              </div>
+              <button
+                onClick={handleUwp}
+                disabled={uwpLoading || uwpDone}
+                className="h-7 px-3 flex items-center gap-1.5 text-[10px] font-medium
+                           bg-surface-2 border border-border-default rounded
+                           text-text-secondary hover:text-text-primary hover:bg-surface-3
+                           disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+              >
+                {uwpLoading ? <Loader2 size={10} className="animate-spin" /> : uwpDone ? <CheckCircle2 size={10} className="text-[#68E045]" /> : <MonitorSmartphone size={10} />}
+                {uwpDone ? t.enabled : t.enableUwp}
+              </button>
+            </div>
           </div>
         </Section>
 

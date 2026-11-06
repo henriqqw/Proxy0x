@@ -1,5 +1,51 @@
 export namespace main {
 	
+	export class BulkCheckResult {
+	    id: string;
+	    host: string;
+	    alive: boolean;
+	    latency: number;
+	    exitIp: string;
+	    country: string;
+	    countryCode: string;
+	    anonymity: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BulkCheckResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.host = source["host"];
+	        this.alive = source["alive"];
+	        this.latency = source["latency"];
+	        this.exitIp = source["exitIp"];
+	        this.country = source["country"];
+	        this.countryCode = source["countryCode"];
+	        this.anonymity = source["anonymity"];
+	        this.error = source["error"];
+	    }
+	}
+	export class DNSLeakResult {
+	    proxyIp: string;
+	    dnsIp: string;
+	    dnsServer: string;
+	    leaked: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DNSLeakResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.proxyIp = source["proxyIp"];
+	        this.dnsIp = source["dnsIp"];
+	        this.dnsServer = source["dnsServer"];
+	        this.leaked = source["leaked"];
+	    }
+	}
 	export class GeoInfo {
 	    country: string;
 	    countryCode: string;
@@ -110,6 +156,7 @@ export namespace main {
 	}
 	export class ProxyEntry {
 	    id: string;
+	    name: string;
 	    host: string;
 	    port: string;
 	    username: string;
@@ -134,6 +181,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
+	        this.name = source["name"];
 	        this.host = source["host"];
 	        this.port = source["port"];
 	        this.username = source["username"];
