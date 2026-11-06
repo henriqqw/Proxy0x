@@ -96,6 +96,7 @@ type App struct {
 	ctx        context.Context
 	proxies    map[string]*ProxyEntry
 	clients    map[string]*http.Client
+	clientsMu  sync.Mutex
 	mu         sync.RWMutex
 	lpMu       sync.Mutex
 	localProxy *proxy.LocalServer
@@ -515,9 +516,13 @@ func (a *App) buildProxyURL(p *ProxyEntry) string {
 	return fmt.Sprintf("%s://%s:%s", scheme, p.Host, p.Port)
 }
 
+// getOrCreateClient reads p's fields, so callers hold a.mu (read or write);
+// the clients map has its own lock because readers of a.mu call this concurrently.
 func (a *App) getOrCreateClient(p *ProxyEntry) *http.Client {
 	clientKey := p.ID + ":" + p.SessionID
 
+	a.clientsMu.Lock()
+	defer a.clientsMu.Unlock()
 	if old, ok := a.clients[clientKey]; ok {
 		return old
 	}
@@ -568,6 +573,8 @@ func (a *App) getOrCreateClient(p *ProxyEntry) *http.Client {
 }
 
 func (a *App) closeClient(key string) {
+	a.clientsMu.Lock()
+	defer a.clientsMu.Unlock()
 	if c, ok := a.clients[key]; ok {
 		if t, ok := c.Transport.(*http.Transport); ok {
 			t.CloseIdleConnections()

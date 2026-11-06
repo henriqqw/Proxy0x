@@ -1,6 +1,31 @@
 package proxycore
 
-import "testing"
+import (
+	"strconv"
+	"sync"
+	"testing"
+)
+
+func TestPoolGetOrCreateClientIsSafeForConcurrentReaders(t *testing.T) {
+	for round := 0; round < 20; round++ {
+		pool := newTestPool(t)
+		var wg sync.WaitGroup
+		for i := 0; i < 64; i++ {
+			e := &ProxyEntry{ID: "p", Host: "127.0.0.1", Port: "1", Protocol: "http", SessionID: strconv.Itoa(i)}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				pool.mu.RLock()
+				pool.getOrCreateClient(e)
+				pool.mu.RUnlock()
+			}()
+		}
+		wg.Wait()
+		if len(pool.clients) != 64 {
+			t.Fatalf("round %d: %d clients, want 64", round, len(pool.clients))
+		}
+	}
+}
 
 func newTestPool(t *testing.T) *Pool {
 	t.Helper()

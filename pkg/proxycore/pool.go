@@ -19,7 +19,9 @@ const maxLogs = 200
 type Pool struct {
 	mu      sync.RWMutex
 	proxies map[string]*ProxyEntry
-	clients map[string]*http.Client
+
+	clientsMu sync.Mutex
+	clients   map[string]*http.Client
 
 	logMu sync.RWMutex
 	logs  []LogEntry
@@ -183,8 +185,11 @@ func (p *Pool) Remove(id string) error {
 	return nil
 }
 
+// getOrCreateClient is called under p.mu read locks, so the map has its own lock.
 func (p *Pool) getOrCreateClient(proxy *ProxyEntry) *http.Client {
 	clientKey := proxy.ID + ":" + proxy.SessionID
+	p.clientsMu.Lock()
+	defer p.clientsMu.Unlock()
 	if c, ok := p.clients[clientKey]; ok {
 		return c
 	}
@@ -194,6 +199,8 @@ func (p *Pool) getOrCreateClient(proxy *ProxyEntry) *http.Client {
 }
 
 func (p *Pool) closeClient(key string) {
+	p.clientsMu.Lock()
+	defer p.clientsMu.Unlock()
 	if c, ok := p.clients[key]; ok {
 		CloseClient(c)
 		delete(p.clients, key)
