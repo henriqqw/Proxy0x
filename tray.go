@@ -7,7 +7,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-//go:embed build/windows/icon.ico
+//go:embed build/windows/tray.ico
 var trayIcon []byte
 
 type langDef struct {

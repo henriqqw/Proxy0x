@@ -17,7 +17,7 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:     "ProxyUI",
+		Title:     "Proxy0x",
 		Width:     420,
 		Height:    680,
 		MinWidth:  380,
@@ -25,7 +25,7 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 25, G: 25, B: 25, A: 255},
+		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 0},
 		OnStartup:        app.startup,
 		OnShutdown:       app.shutdown,
 		Frameless:         true,
@@ -34,7 +34,7 @@ func main() {
 		},
 		Windows: &windows.Options{
 			WebviewIsTransparent: true,
-			WindowIsTranslucent:  false,
+			WindowIsTranslucent:  true,
 			Theme:                windows.Dark,
 		},
 	})

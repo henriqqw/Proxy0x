@@ -10,6 +10,10 @@ export function AddProxy(arg1) {
   return window['go']['main']['App']['AddProxy'](arg1);
 }
 
+export function BenchmarkProxy(arg1) {
+  return window['go']['main']['App']['BenchmarkProxy'](arg1);
+}
+
 export function CheckHealth(arg1) {
   return window['go']['main']['App']['CheckHealth'](arg1);
 }
@@ -18,16 +22,40 @@ export function CloseWindow() {
   return window['go']['main']['App']['CloseWindow']();
 }
 
+export function ConnectGroup(arg1) {
+  return window['go']['main']['App']['ConnectGroup'](arg1);
+}
+
 export function ConnectProxy(arg1) {
   return window['go']['main']['App']['ConnectProxy'](arg1);
+}
+
+export function DisconnectGroup(arg1) {
+  return window['go']['main']['App']['DisconnectGroup'](arg1);
 }
 
 export function DisconnectProxy(arg1) {
   return window['go']['main']['App']['DisconnectProxy'](arg1);
 }
 
+export function ExportProxies() {
+  return window['go']['main']['App']['ExportProxies']();
+}
+
+export function GetAutoRotateInterval() {
+  return window['go']['main']['App']['GetAutoRotateInterval']();
+}
+
 export function GetConnectionLog() {
   return window['go']['main']['App']['GetConnectionLog']();
+}
+
+export function GetGroups() {
+  return window['go']['main']['App']['GetGroups']();
+}
+
+export function GetHealthCheckInterval() {
+  return window['go']['main']['App']['GetHealthCheckInterval']();
 }
 
 export function GetLanguage() {
@@ -70,8 +98,20 @@ export function RotateProxy(arg1) {
   return window['go']['main']['App']['RotateProxy'](arg1);
 }
 
+export function SetAutoRotateInterval(arg1) {
+  return window['go']['main']['App']['SetAutoRotateInterval'](arg1);
+}
+
+export function SetHealthCheckInterval(arg1) {
+  return window['go']['main']['App']['SetHealthCheckInterval'](arg1);
+}
+
 export function SetLanguage(arg1) {
   return window['go']['main']['App']['SetLanguage'](arg1);
+}
+
+export function SetProxyGroup(arg1, arg2) {
+  return window['go']['main']['App']['SetProxyGroup'](arg1, arg2);
 }
 
 export function SetTheme(arg1) {

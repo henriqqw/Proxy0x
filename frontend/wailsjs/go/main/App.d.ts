@@ -6,15 +6,29 @@ export function AddProxiesBatch(arg1:string):Promise<Array<main.ProxyEntry>>;
 
 export function AddProxy(arg1:string):Promise<main.ProxyEntry>;
 
+export function BenchmarkProxy(arg1:string):Promise<Record<string, any>>;
+
 export function CheckHealth(arg1:string):Promise<main.ProxyEntry>;
 
 export function CloseWindow():Promise<void>;
 
+export function ConnectGroup(arg1:string):Promise<void>;
+
 export function ConnectProxy(arg1:string):Promise<main.ProxyEntry>;
+
+export function DisconnectGroup(arg1:string):Promise<void>;
 
 export function DisconnectProxy(arg1:string):Promise<main.ProxyEntry>;
 
+export function ExportProxies():Promise<string>;
+
+export function GetAutoRotateInterval():Promise<number>;
+
 export function GetConnectionLog():Promise<Array<main.LogEntry>>;
+
+export function GetGroups():Promise<Array<string>>;
+
+export function GetHealthCheckInterval():Promise<number>;
 
 export function GetLanguage():Promise<string>;
 
@@ -36,7 +50,13 @@ export function RestartProxy(arg1:string):Promise<main.ProxyEntry>;
 
 export function RotateProxy(arg1:string):Promise<main.ProxyEntry>;
 
+export function SetAutoRotateInterval(arg1:number):Promise<void>;
+
+export function SetHealthCheckInterval(arg1:number):Promise<void>;
+
 export function SetLanguage(arg1:string):Promise<void>;
+
+export function SetProxyGroup(arg1:string,arg2:string):Promise<main.ProxyEntry>;
 
 export function SetTheme(arg1:string):Promise<void>;
 

@@ -52,11 +52,12 @@ export namespace main {
 	}
 	export class ProxyEntry {
 	    id: string;
-	    raw: string;
 	    host: string;
 	    port: string;
 	    username: string;
 	    password: string;
+	    protocol: string;
+	    group: string;
 	    status: string;
 	    currentIp: string;
 	    location?: GeoInfo;
@@ -75,11 +76,12 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
-	        this.raw = source["raw"];
 	        this.host = source["host"];
 	        this.port = source["port"];
 	        this.username = source["username"];
 	        this.password = source["password"];
+	        this.protocol = source["protocol"];
+	        this.group = source["group"];
 	        this.status = source["status"];
 	        this.currentIp = source["currentIp"];
 	        this.location = this.convertValues(source["location"], GeoInfo);

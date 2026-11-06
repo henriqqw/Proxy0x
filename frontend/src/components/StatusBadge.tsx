@@ -1,5 +1,3 @@
-import { motion } from 'framer-motion'
-
 interface Props {
   status: 'offline' | 'connecting' | 'connected' | 'error'
 }
@@ -16,10 +14,10 @@ export default function StatusBadge({ status }: Props) {
 
   return (
     <div className={`flex items-center gap-1.5 ${c.text}`}>
-      <motion.div
-        className={`w-1.5 h-1.5 rounded-full ${c.color}`}
-        animate={status === 'connecting' ? { opacity: [1, 0.3, 1] } : {}}
-        transition={status === 'connecting' ? { duration: 1.2, repeat: Infinity } : {}}
+      <div
+        className={`w-1.5 h-1.5 rounded-full ${c.color} ${
+          status === 'connecting' ? 'animate-pulse' : ''
+        }`}
       />
       <span className="text-[10px] font-medium uppercase tracking-wider">{c.label}</span>
     </div>

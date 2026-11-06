@@ -1,13 +1,13 @@
 import { useState } from 'react'
-import { motion } from 'framer-motion'
 import {
   Power, X, RotateCw,
   Trash2, Copy, MapPin, Clock, Wifi, Server,
-  ChevronDown, Activity, Building2, GripVertical, Timer
+  ChevronDown, Activity, Building2, GripVertical, Timer,
+  Gauge, Tag
 } from 'lucide-react'
 import {
   ConnectProxy, DisconnectProxy, RotateProxy,
-  RemoveProxy
+  RemoveProxy, BenchmarkProxy, SetProxyGroup,
 } from 'wailsjs/go/main/App'
 import { main } from 'wailsjs/go/models'
 import { useSortable } from '@dnd-kit/sortable'
@@ -41,6 +41,9 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
   const [busy, setBusy] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [bench, setBench] = useState<{connectMs?: number; downloadMbps?: number} | null>(null)
+  const [editGroup, setEditGroup] = useState(false)
+  const [groupInput, setGroupInput] = useState(proxy.group || '')
 
   const {
     attributes,
@@ -78,15 +81,10 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
   }
 
   return (
-    <motion.div
+    <div
       ref={setNodeRef}
       style={style}
-      layout
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      transition={{ duration: 0.2 }}
-      className={`rounded-lg border transition-all ${
+      className={`rounded-lg border transition-all animate-fade-in ${
         isActive
           ? 'bg-surface-2 border-accent/20 shadow-[0_1px_12px_rgba(104,224,69,0.06)]'
           : 'bg-surface-1 border-border-default hover:border-border-strong'
@@ -110,22 +108,32 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
               {proxy.host}:{proxy.port}
             </span>
           </div>
-          <button
-            onClick={() => { RemoveProxy(proxy.id); onRemoved() }}
-            className="p-1 rounded text-text-tertiary/40 hover:text-status-error hover:bg-surface-4 transition-all"
-            aria-label="Remove proxy"
-          >
-            <Trash2 size={11} />
-          </button>
+          <div className="flex items-center gap-1">
+            <span className={`px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider rounded ${
+              proxy.protocol === 'socks5'
+                ? 'bg-btn-accent text-btn-accent-text'
+                : 'bg-[#505050] text-[#d4d4d4]'
+            }`}>
+              {proxy.protocol === 'socks5' ? 'S5' : 'HTTP'}
+            </span>
+            {proxy.group && (
+              <span className="px-1.5 py-0.5 text-[8px] font-medium rounded bg-accent/10 text-accent border border-accent/20 truncate max-w-[60px]">
+                {proxy.group}
+              </span>
+            )}
+            <button
+              onClick={() => { RemoveProxy(proxy.id); onRemoved() }}
+              className="p-1 rounded text-text-tertiary/40 hover:text-status-error hover:bg-surface-4 transition-all"
+              aria-label="Remove proxy"
+            >
+              <Trash2 size={11} />
+            </button>
+          </div>
         </div>
 
         {/* IP Display */}
         {proxy.currentIp && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex items-center gap-2 mb-2"
-          >
+          <div className="flex items-center gap-2 mb-2">
             {proxy.location?.countryCode && (
               <FlagIcon countryCode={proxy.location.countryCode} size={13} />
             )}
@@ -149,7 +157,7 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
                 {proxy.latency}ms
               </span>
             )}
-          </motion.div>
+          </div>
         )}
 
         {/* Location */}
@@ -194,6 +202,16 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
             busy={busy === 'rotate'}
             disabled={!isActive && !isConnecting}
           />
+          <ControlBtn
+            icon={<Gauge size={12} />}
+            label={t.speedTest}
+            onClick={() => action('bench', async () => {
+              const r = await BenchmarkProxy(proxy.id)
+              setBench(r)
+            })}
+            busy={busy === 'bench'}
+            disabled={!isActive && !isConnecting}
+          />
 
           {isActive && (proxy.totalUptime > 0 || proxy.connectedAt) && (
             <span className="ml-auto flex items-center gap-1 text-[10px] text-text-tertiary">
@@ -215,13 +233,33 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
       </button>
 
       {expanded && (
-        <motion.div
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: 'auto', opacity: 1 }}
-          className="px-3 pb-3 space-y-1.5 text-[10px] text-text-tertiary border-t border-border-subtle"
-        >
+        <div className="px-3 pb-3 space-y-1.5 text-[10px] text-text-tertiary border-t border-border-subtle animate-expand">
           <DetailRow icon={<Server size={9} />} label={t.host} value={`${proxy.host}:${proxy.port}`} />
+          <DetailRow icon={<Wifi size={9} />} label={t.protocol} value={(proxy.protocol || 'http').toUpperCase()} />
           <DetailRow icon={<Wifi size={9} />} label={t.session} value={proxy.sessionId || '--'} />
+          <div className="flex items-center justify-between pt-1.5">
+            <span className="flex items-center gap-1.5 text-text-tertiary/70"><Tag size={9} /> {t.group}</span>
+            {editGroup ? (
+              <input
+                autoFocus
+                value={groupInput}
+                onChange={e => setGroupInput(e.target.value)}
+                onBlur={() => { SetProxyGroup(proxy.id, groupInput.trim()); setEditGroup(false) }}
+                onKeyDown={e => { if (e.key === 'Enter') { SetProxyGroup(proxy.id, groupInput.trim()); setEditGroup(false) } }}
+                className="w-20 h-5 px-1.5 text-[10px] font-mono bg-surface-2 border border-border-strong rounded text-text-primary focus:outline-none text-right"
+              />
+            ) : (
+              <button onClick={() => setEditGroup(true)} className="font-mono text-text-secondary hover:text-text-primary transition-colors">
+                {proxy.group || '--'}
+              </button>
+            )}
+          </div>
+          {bench && (
+            <>
+              <DetailRow icon={<Gauge size={9} />} label={t.connectTime} value={`${bench.connectMs ?? '--'}ms`} />
+              <DetailRow icon={<Gauge size={9} />} label={t.downloadSpeed} value={bench.downloadMbps != null ? `${bench.downloadMbps.toFixed(1)} Mbps` : '--'} />
+            </>
+          )}
           {proxy.connectedAt && (
             <DetailRow icon={<Clock size={9} />} label={t.connectedAt} value={new Date(proxy.connectedAt).toLocaleTimeString()} />
           )}
@@ -240,9 +278,9 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
           {proxy.lastCheck && (
             <DetailRow icon={<Clock size={9} />} label={t.lastCheck} value={new Date(proxy.lastCheck).toLocaleTimeString()} />
           )}
-        </motion.div>
+        </div>
       )}
-    </motion.div>
+    </div>
   )
 }
 

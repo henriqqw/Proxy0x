@@ -1,15 +1,14 @@
-import { useState, useRef, useEffect } from 'react'
-import { Minus, Square, X, Globe, Sun, Moon } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Minus, Square, X, Settings, Sun, Moon } from 'lucide-react'
 import { MinimizeWindow, CloseWindow, ToggleMaximize, GetTheme, SetTheme } from 'wailsjs/go/main/App'
 import { EventsOn } from 'wailsjs/runtime/runtime'
-import { languages } from '../i18n/translations'
-import { useTranslation } from '../i18n/LanguageContext'
 
-export default function TitleBar() {
-  const { lang, setLang } = useTranslation()
-  const [showLang, setShowLang] = useState(false)
+interface Props {
+  onOpenSettings: () => void
+}
+
+export default function TitleBar({ onOpenSettings }: Props) {
   const [theme, setThemeState] = useState<'dark' | 'light'>('dark')
-  const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     GetTheme().then(t => {
@@ -25,17 +24,6 @@ export default function TitleBar() {
     })
     return () => { off() }
   }, [])
-
-  useEffect(() => {
-    if (!showLang) return
-    const handle = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowLang(false)
-      }
-    }
-    document.addEventListener('mousedown', handle)
-    return () => document.removeEventListener('mousedown', handle)
-  }, [showLang])
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark'
@@ -60,41 +48,13 @@ export default function TitleBar() {
         >
           {theme === 'dark' ? <Sun size={12} /> : <Moon size={12} />}
         </button>
-        <div className="relative" ref={dropdownRef}>
-          <button
-            onClick={() => setShowLang(!showLang)}
-            className="p-1.5 rounded hover:bg-surface-4 transition-colors text-text-tertiary hover:text-text-secondary"
-            aria-label="Change language"
-          >
-            <Globe size={12} />
-          </button>
-          {showLang && (
-            <div className="absolute right-0 top-full mt-1 w-[180px] border border-border-default rounded-lg shadow-xl py-1 z-50 max-h-[320px] overflow-y-auto" style={{ background: 'var(--surface-2)' }}>
-              {languages.map(l => (
-                <button
-                  key={l.code}
-                  onClick={() => { setLang(l.code); setShowLang(false) }}
-                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors
-                    ${lang === l.code
-                      ? 'text-text-primary bg-surface-4'
-                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-3'
-                    }`}
-                >
-                  <img
-                    src={`https://flagcdn.com/w20/${l.flag}.png`}
-                    alt={l.code}
-                    className="w-4 h-3 object-cover rounded-[1px]"
-                    loading="lazy"
-                  />
-                  <span className="flex-1 text-left">{l.name}</span>
-                  {lang === l.code && (
-                    <span className="text-accent text-[10px]">&#10003;</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <button
+          onClick={onOpenSettings}
+          className="p-1.5 rounded hover:bg-surface-4 transition-colors text-text-tertiary hover:text-text-secondary"
+          aria-label="Settings"
+        >
+          <Settings size={12} />
+        </button>
         <button
           onClick={() => MinimizeWindow()}
           className="p-1.5 rounded hover:bg-surface-4 transition-colors text-text-tertiary hover:text-text-secondary"

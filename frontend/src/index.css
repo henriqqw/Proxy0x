@@ -50,14 +50,24 @@
   --btn-accent-hover: #333333;
 }
 
-html, body, #root {
+html, body {
   height: 100%;
   width: 100%;
-  background: var(--surface-0);
+  background: transparent;
   color: var(--text-primary);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
 }
 
 ::-webkit-scrollbar {
@@ -95,4 +105,35 @@ html, body, #root {
 [data-theme="light"] .mascot-empty {
   opacity: 0.45 !important;
   filter: saturate(1.4) contrast(1.1);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes expand {
+  from { opacity: 0; max-height: 0; }
+  to   { opacity: 1; max-height: 500px; }
+}
+@keyframes breathe {
+  0%, 100% { opacity: 0.2; }
+  50%      { opacity: 0.35; }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+.animate-slide-down {
+  animation: slide-down 0.2s ease-out;
+}
+.animate-expand {
+  animation: expand 0.2s ease-out;
+  overflow: hidden;
+}
+.animate-breathe {
+  animation: breathe 3s ease-in-out infinite;
 }

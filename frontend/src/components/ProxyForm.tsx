@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, ClipboardPaste, ChevronDown } from 'lucide-react'
 import { AddProxy, AddProxiesBatch } from 'wailsjs/go/main/App'
 import { useTranslation } from '../i18n/LanguageContext'
@@ -11,6 +10,7 @@ interface Props {
 export default function ProxyForm({ onAdded }: Props) {
   const { t } = useTranslation()
   const [input, setInput] = useState('')
+  const [protocol, setProtocol] = useState<'http' | 'socks5'>('socks5')
   const [expanded, setExpanded] = useState(false)
   const [batch, setBatch] = useState('')
   const [loading, setLoading] = useState(false)
@@ -21,7 +21,8 @@ export default function ProxyForm({ onAdded }: Props) {
     setLoading(true)
     setError('')
     try {
-      await AddProxy(input.trim())
+      const raw = protocol === 'socks5' ? `socks5://${input.trim()}` : input.trim()
+      await AddProxy(raw)
       setInput('')
       onAdded()
     } catch (e: any) {
@@ -66,13 +67,32 @@ export default function ProxyForm({ onAdded }: Props) {
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.05 }}
-      className="space-y-1.5"
-    >
+    <div className="space-y-1.5 animate-slide-down">
       <div className="flex gap-1.5">
+        <div className="flex shrink-0 rounded overflow-hidden">
+          <button
+            onClick={() => setProtocol('socks5')}
+            className={`h-8 px-2.5 text-[9px] font-bold uppercase tracking-wider transition-all ${
+              protocol === 'socks5'
+                ? 'bg-btn-accent text-btn-accent-text'
+                : 'bg-[#505050]/25 text-text-tertiary'
+            }`}
+            title={t.protocol}
+          >
+            S5
+          </button>
+          <button
+            onClick={() => setProtocol('http')}
+            className={`h-8 px-2.5 text-[9px] font-bold uppercase tracking-wider transition-all ${
+              protocol === 'http'
+                ? 'bg-[#505050] text-[#d4d4d4]'
+                : 'bg-[#505050]/25 text-text-tertiary'
+            }`}
+            title={t.protocol}
+          >
+            HTTP
+          </button>
+        </div>
         <div className="flex-1 relative">
           <input
             type="text"
@@ -99,7 +119,7 @@ export default function ProxyForm({ onAdded }: Props) {
           disabled={loading || !input.trim()}
           aria-label={t.add}
           className="h-8 px-3 flex items-center gap-1.5 text-xs font-medium
-                     bg-btn-accent border border-transparent rounded-lg
+                     bg-btn-accent border border-border-strong rounded
                      text-btn-accent-text hover:bg-btn-accent-hover font-semibold
                      disabled:opacity-30 disabled:cursor-not-allowed transition-all"
         >
@@ -116,49 +136,32 @@ export default function ProxyForm({ onAdded }: Props) {
         {t.batchImport}
       </button>
 
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
+      {expanded && (
+        <div className="overflow-hidden animate-expand">
+          <textarea
+            value={batch}
+            onChange={e => setBatch(e.target.value)}
+            placeholder={t.batchPlaceholder}
+            rows={4}
+            className="w-full px-3 py-2 text-xs font-mono bg-surface-2 border border-border-default rounded-lg
+                       text-text-primary placeholder:text-text-tertiary resize-none
+                       focus:outline-none focus:border-border-strong focus:bg-surface-3 transition-all"
+          />
+          <button
+            onClick={handleBatchAdd}
+            disabled={loading || !batch.trim()}
+            className="mt-1.5 h-7 px-3 text-xs font-medium bg-surface-4 border border-border-default rounded
+                       text-text-secondary hover:text-text-primary hover:bg-surface-5
+                       disabled:opacity-30 disabled:cursor-not-allowed transition-all"
           >
-            <textarea
-              value={batch}
-              onChange={e => setBatch(e.target.value)}
-              placeholder={t.batchPlaceholder}
-              rows={4}
-              className="w-full px-3 py-2 text-xs font-mono bg-surface-2 border border-border-default rounded-lg
-                         text-text-primary placeholder:text-text-tertiary resize-none
-                         focus:outline-none focus:border-border-strong focus:bg-surface-3 transition-all"
-            />
-            <button
-              onClick={handleBatchAdd}
-              disabled={loading || !batch.trim()}
-              className="mt-1.5 h-7 px-3 text-xs font-medium bg-surface-4 border border-border-default rounded
-                         text-text-secondary hover:text-text-primary hover:bg-surface-5
-                         disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-            >
-              {loading ? t.adding : t.importAll}
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            {loading ? t.adding : t.importAll}
+          </button>
+        </div>
+      )}
 
-      <AnimatePresence>
-        {error && (
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="text-[10px] text-status-error"
-          >
-            {error}
-          </motion.p>
-        )}
-      </AnimatePresence>
-    </motion.div>
+      {error && (
+        <p className="text-[10px] text-status-error animate-fade-in">{error}</p>
+      )}
+    </div>
   )
 }

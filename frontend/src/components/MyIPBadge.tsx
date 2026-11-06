@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { motion } from 'framer-motion'
 import { Globe, RefreshCw, Eye, EyeOff } from 'lucide-react'
 import { useTranslation } from '../i18n/LanguageContext'
 
@@ -19,14 +18,12 @@ export default function MyIPBadge({ ip, onRefresh }: Props) {
     setTimeout(() => setSpinning(false), 1000)
   }
 
-  const masked = ip ? ip.replace(/\d/g, '●') : '...'
+  const masked = ip
+    ? ip.replace(/^(\d+)\.(.+)$/, (_, first, rest) => `${first}.${rest.replace(/\d/g, '●')}`)
+    : '...'
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -4 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-surface-1 border border-border-default"
-    >
+    <div className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-surface-1 border border-border-default animate-slide-down">
       <div className="flex items-center gap-2">
         <Globe size={12} className="text-accent/50" />
         <span className="text-[10px] text-text-tertiary uppercase tracking-wider">{t.yourIp}</span>
@@ -41,14 +38,7 @@ export default function MyIPBadge({ ip, onRefresh }: Props) {
           title={visible ? t.hideIp : t.showIp}
           aria-label={visible ? t.hideIp : t.showIp}
         >
-          <motion.div
-            key={visible ? 'eye' : 'eyeoff'}
-            initial={{ scale: 0.7, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ duration: 0.15 }}
-          >
-            {visible ? <Eye size={11} /> : <EyeOff size={11} />}
-          </motion.div>
+          {visible ? <Eye size={11} /> : <EyeOff size={11} />}
         </button>
         <button
           onClick={handleRefresh}
@@ -58,6 +48,6 @@ export default function MyIPBadge({ ip, onRefresh }: Props) {
           <RefreshCw size={10} className={spinning ? 'animate-spin' : ''} />
         </button>
       </div>
-    </motion.div>
+    </div>
   )
 }

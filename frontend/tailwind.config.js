@@ -24,10 +24,10 @@ export default {
           tertiary: 'var(--text-tertiary)',
         },
         accent: {
-          DEFAULT: '#68E045',
-          dark: '#43B52F',
-          muted: '#68E04540',
-          subtle: '#68E04520',
+          DEFAULT: '#7CDD4F',
+          dark: '#5BBF35',
+          muted: '#7CDD4F40',
+          subtle: '#7CDD4F20',
         },
         btn: {
           accent: 'var(--btn-accent-bg)',
@@ -35,7 +35,7 @@ export default {
           'accent-hover': 'var(--btn-accent-hover)',
         },
         status: {
-          online: '#68E045',
+          online: '#7CDD4F',
           offline: '#6b6b6b',
           connecting: '#d4a024',
           error: '#cc4444',
