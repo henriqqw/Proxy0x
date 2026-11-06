@@ -17,7 +17,7 @@ export default function MyIPBadge({ ip, onRefresh }: Props) {
     setTimeout(() => setSpinning(false), 1000)
   }
 
-  const masked = ip ? ip.replace(/\d/g, '*') : '...'
+  const masked = ip ? ip.replace(/\d/g, '●') : '...'
 
   return (
     <motion.div

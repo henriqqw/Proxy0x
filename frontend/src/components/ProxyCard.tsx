@@ -211,8 +211,8 @@ function ControlBtn({
                   border transition-all
                   disabled:opacity-20 disabled:cursor-not-allowed
                   ${accent
-                    ? 'bg-accent/15 border-accent/30 text-accent hover:bg-accent/25'
-                    : 'bg-surface-3 border-border-default text-text-secondary hover:text-text-primary hover:bg-surface-4'
+                    ? 'bg-text-primary border-transparent text-surface-0 hover:bg-[#d4d4d4] font-semibold'
+                    : 'bg-transparent border-border-strong text-text-secondary hover:text-text-primary hover:bg-surface-2'
                   }`}
     >
       <span className={busy ? 'animate-spin' : ''}>{icon}</span>
