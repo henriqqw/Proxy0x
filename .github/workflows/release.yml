@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine next version
+        id: version
+        shell: bash
+        run: |
+          LATEST=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          if [ -z "$LATEST" ]; then
+            NEXT="v1.0.0"
+          else
+            MAJOR=$(echo "$LATEST" | sed 's/v//' | cut -d. -f1)
+            MINOR=$(echo "$LATEST" | sed 's/v//' | cut -d. -f2)
+            PATCH=$(echo "$LATEST" | sed 's/v//' | cut -d. -f3)
+            PATCH=$((PATCH + 1))
+            NEXT="v${MAJOR}.${MINOR}.${PATCH}"
+          fi
+          echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "version=${NEXT#v}" >> "$GITHUB_OUTPUT"
+          echo "Next version: $NEXT"
+
+      - name: Check if release needed
+        id: check
+        shell: bash
+        run: |
+          LATEST=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          if [ -z "$LATEST" ]; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          else
+            CHANGES=$(git log "$LATEST"..HEAD --oneline | wc -l)
+            if [ "$CHANGES" -gt 0 ]; then
+              echo "needed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "needed=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Setup Go
+        if: steps.check.outputs.needed == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Setup Node
+        if: steps.check.outputs.needed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Wails
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Install NSIS
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        run: choco install nsis -y
+
+      - name: Update version in wails.json
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          sed -i "s/\"productVersion\": \".*\"/\"productVersion\": \"$VERSION\"/" wails.json
+
+      - name: Build installer
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        run: wails build -nsis -windowsconsole=false
+
+      - name: Generate changelog
+        if: steps.check.outputs.needed == 'true'
+        id: changelog
+        shell: bash
+        run: |
+          LATEST=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          {
+            echo 'body<<CHANGELOG_EOF'
+            echo "## What's Changed"
+            echo ""
+            if [ -z "$LATEST" ]; then
+              git log --oneline --pretty=format:"- %s" | head -30
+            else
+              git log "$LATEST"..HEAD --oneline --pretty=format:"- %s"
+            fi
+            echo ""
+            echo ""
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LATEST:-initial}...${{ steps.version.outputs.tag }}"
+            echo 'CHANGELOG_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create tag
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ steps.version.outputs.tag }}
+          git push origin ${{ steps.version.outputs.tag }}
+
+      - name: Create release
+        if: steps.check.outputs.needed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Proxy0x ${{ steps.version.outputs.tag }}
+          body: ${{ steps.changelog.outputs.body }}
+          files: |
+            build/bin/Proxy0x-amd64-installer.exe

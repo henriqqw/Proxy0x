@@ -4,10 +4,10 @@
   },
   "info": {
     "0000": {
-      "FileDescription": "ProxyUI - Proxy Manager",
-      "ProductName": "ProxyUI",
-      "CompanyName": "",
-      "LegalCopyright": "",
+      "FileDescription": "Proxy0x - Windows Proxy Manager",
+      "ProductName": "Proxy0x",
+      "CompanyName": "henriqqw",
+      "LegalCopyright": "Copyright 2026 henriqqw",
       "FileVersion": "v1.0.0",
       "ProductVersion": "v1.0.0"
     }

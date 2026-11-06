@@ -34,8 +34,8 @@ export default function ContextMenu() {
       onContextMenu={e => { e.preventDefault(); handleClose() }}
     >
       <div
-        className="absolute bg-surface-2 border border-border-default rounded-lg shadow-xl py-1 w-[180px] overflow-hidden"
-        style={{ left: pos.x, top: pos.y }}
+        className="absolute border border-border-default rounded-lg shadow-xl py-1 w-[180px] overflow-hidden"
+        style={{ left: pos.x, top: pos.y, background: 'var(--surface-2)' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] text-text-tertiary uppercase tracking-wider">

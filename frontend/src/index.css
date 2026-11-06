@@ -37,12 +37,12 @@
   --surface-4: #cccccc;
   --surface-5: #b0b0b0;
   --surface-6: #999999;
-  --border-subtle: rgba(0,0,0,0.06);
-  --border-default: rgba(0,0,0,0.10);
-  --border-strong: rgba(0,0,0,0.16);
+  --border-subtle: rgba(0,0,0,0.08);
+  --border-default: rgba(0,0,0,0.13);
+  --border-strong: rgba(0,0,0,0.20);
   --text-primary: #1a1a1a;
-  --text-secondary: #555555;
-  --text-tertiary: #888888;
+  --text-secondary: #444444;
+  --text-tertiary: #666666;
   --scrollbar-thumb: #cccccc;
   --scrollbar-hover: #b0b0b0;
   --btn-accent-bg: #1a1a1a;
@@ -84,9 +84,15 @@ html, body, #root {
 }
 
 [data-theme="light"] .logo-footer {
-  filter: invert(1);
+  filter: brightness(0);
+  opacity: 0.18;
 }
 
 [data-theme="light"] .logo-titlebar {
-  filter: invert(1);
+  filter: brightness(0);
+}
+
+[data-theme="light"] .mascot-empty {
+  opacity: 0.45 !important;
+  filter: saturate(1.4) contrast(1.1);
 }

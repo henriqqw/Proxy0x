@@ -46,8 +46,8 @@ export default function TitleBar() {
 
   return (
     <div
-      className="flex items-center justify-between h-10 px-3 bg-surface-1/80 border-b border-border-default shrink-0 backdrop-blur-sm"
-      style={{ '--wails-draggable': 'drag' } as React.CSSProperties}
+      className="flex items-center justify-between h-10 px-3 border-b border-border-default shrink-0"
+      style={{ '--wails-draggable': 'drag', background: 'var(--surface-1)' } as React.CSSProperties}
     >
       <div className="flex items-center">
         <img src="/logo.png" alt="Proxy0x" className="h-4 logo-titlebar" draggable={false} />
@@ -69,7 +69,7 @@ export default function TitleBar() {
             <Globe size={12} />
           </button>
           {showLang && (
-            <div className="absolute right-0 top-full mt-1 w-[180px] bg-surface-2 border border-border-default rounded-lg shadow-xl py-1 z-50 max-h-[320px] overflow-y-auto">
+            <div className="absolute right-0 top-full mt-1 w-[180px] border border-border-default rounded-lg shadow-xl py-1 z-50 max-h-[320px] overflow-y-auto" style={{ background: 'var(--surface-2)' }}>
               {languages.map(l => (
                 <button
                   key={l.code}

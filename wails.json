@@ -1,13 +1,23 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "ProxyUI",
-  "outputfilename": "ProxyUI",
+  "name": "Proxy0x",
+  "outputfilename": "Proxy0x",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "ProxyUI",
+    "name": "henriqqw",
     "email": ""
-  }
+  },
+  "info": {
+    "companyName": "Proxy0x",
+    "productName": "Proxy0x",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright 2026 henriqqw",
+    "comments": "Windows proxy manager widget"
+  },
+  "nsisType": "multiple",
+  "obfuscated": false,
+  "garbleargs": ""
 }

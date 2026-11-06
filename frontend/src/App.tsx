@@ -122,7 +122,7 @@ function AppContent() {
         )}
       </div>
       <div className="shrink-0 flex items-center justify-center py-3 border-t border-border-subtle">
-        <img src="/logo.png" alt="Proxy0x" className="h-7 opacity-[0.15] logo-footer" draggable={false} />
+        <img src="/logo.png" alt="Proxy0x" className="h-7 opacity-[0.12] logo-footer" draggable={false} />
       </div>
       <ContextMenu />
     </div>

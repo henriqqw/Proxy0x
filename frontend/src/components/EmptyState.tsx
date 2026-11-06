@@ -14,14 +14,14 @@ export default function EmptyState() {
       <motion.img
         src="/icon-64.png"
         alt="Proxy0x"
-        className="w-14 h-14 opacity-30"
+        className="w-14 h-14 opacity-30 mascot-empty"
         draggable={false}
         animate={{ opacity: [0.2, 0.35, 0.2] }}
         transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
       />
       <div className="text-center space-y-1">
         <p className="text-xs text-text-tertiary">{t.noProxy}</p>
-        <p className="text-[10px] text-text-tertiary/50">{t.addProxyHint}</p>
+        <p className="text-[10px] text-text-tertiary/70">{t.addProxyHint}</p>
       </div>
     </motion.div>
   )
