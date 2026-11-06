@@ -9,6 +9,8 @@ import (
 
 var privateRanges []net.IPNet
 
+var lookupIP = net.LookupIP
+
 var metadataIPs = []net.IP{
 	net.ParseIP("169.254.169.254"),
 	net.ParseIP("169.254.170.2"),
@@ -71,7 +73,7 @@ func ValidateURL(rawURL string) error {
 		return validateIP(ip)
 	}
 
-	ips, err := net.LookupIP(host)
+	ips, err := lookupIP(host)
 	if err == nil {
 		for _, resolved := range ips {
 			if err := validateIP(resolved); err != nil {
