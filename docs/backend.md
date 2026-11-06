@@ -11,7 +11,7 @@ Go backend of the Proxy0x desktop app. Exported `App` methods are Wails bindings
 | `internal/crypto` | AES-256-GCM credential encryption, key protected with DPAPI. Shared with the MCP server. |
 | `internal/config` | `config.json` and data-file paths |
 | `internal/fsutil` | `WriteFileAtomic` (temp file + rename, keeps `.bak`) |
-| `internal/killswitch` | Windows Firewall rules through an elevated script |
+| `internal/killswitch` | Windows Firewall kill switch (outbound default block + allow rules) and elevated commands |
 | `internal/mcpserver`, `pkg/proxycore`, `cmd/proxy0x-mcp` | MCP server (see `docs/mcp.md`) |
 
 ## App struct
@@ -55,7 +55,7 @@ Rules the code follows:
 4. Start the tray, the health-check loop and the auto-rotation loop.
 
 ### `shutdown(ctx)`
-1. If the kill switch is on: remove its firewall rules (UAC prompt) and save the flag as off.
+1. If the kill switch is active in the firewall: disable it (UAC prompt) and, on success, save the flag as off.
 2. Stop the local server and restore the user's system proxy.
 3. Close `stopCh`.
 
@@ -108,7 +108,14 @@ Called by `CheckHealth` when a connected proxy drops and `AutoFailover` is on: c
 
 ## Kill switch (`internal/killswitch`)
 
-`Enable()` writes a `.bat` to `%TEMP%\proxy0x-fw.bat` and runs it elevated (`ShellExecute runas`). The script adds three outbound rules: `Proxy0x-KillSwitch-Block` (block all), `-AllowApp` (allow Proxy0x.exe) and `-AllowLocal` (allow 127.0.0.1/::1). `Disable()` deletes them. See `docs/security.md` for the open issues with this approach.
+`Firewall` (behind the `killSwitch` interface on `App`, faked in tests) works through injectable functions for the exe path, policy reads, rule lookup and elevation:
+
+- `Enable()`: saves each profile's policy to `killswitch-backup.json` (kept if it already exists), then in one elevated command adds the allow rules (Proxy0x.exe, loopback, DNS Client on port 53) and sets each profile to `<inbound>,blockoutbound`.
+- `Disable()`: restores the saved policy, deletes the `Proxy0x-KillSwitch-*` rules and the backup. No-op when no Proxy0x rule exists.
+- `Active()`: `Proxy0x-KillSwitch-AllowApp` exists (`netsh` exits 0).
+- `RunElevated(command)`: `cmd.exe /S /C "<command>"` via `ShellExecuteExW("runas")`, waits, fails on a non-zero exit code; `ErrCancelled` when UAC is declined. Also used by `EnableUWPSupport`.
+
+`Proxy0x.exe --disable-killswitch` runs `Disable()` and exits without opening the window (used by the uninstaller). Details and limitations: `docs/security.md` → Kill switch.
 
 ## Background loops
 

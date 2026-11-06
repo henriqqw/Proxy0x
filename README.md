@@ -57,7 +57,7 @@ Download from the [latest release](https://github.com/henriqqw/Proxy0x/releases/
 | Connect fastest | Tests every inactive proxy and connects the lowest-latency one |
 | Auto rotation | Presets (1, 3, 5, 10 min) or a custom interval in minutes |
 | Auto-failover | When the active proxy fails a health check, connects the inactive proxy with the lowest last-known latency |
-| Kill switch | While enabled, Windows Firewall rules block outbound traffic except Proxy0x itself and loopback (requires UAC). Disabled on app exit. See [Known limitations](#known-limitations) |
+| Kill switch | While enabled, Windows Firewall blocks outbound traffic by default and allows only Proxy0x, loopback and DNS (requires UAC). Your previous firewall policy is restored on disable, on app exit and on uninstall. See [Known limitations](#known-limitations) |
 | Exit IP check ("DNS leak test") | Compares the exit IP through the proxy with your direct IP |
 | Bulk checker | Tests all proxies concurrently (10 at a time): latency, exit IP, country, transparent/elite |
 | UWP support | Loopback exemption so Edge/Store apps can reach the local proxy (requires UAC) |
@@ -343,7 +343,7 @@ Country flags are bundled with the app (no remote requests). All requests use HT
 ## Known limitations
 
 - **System proxy scope:** only applications that honor the Windows (WinINET) system proxy are routed. UDP traffic (e.g. WebRTC, QUIC) and apps with their own network stack are not covered and can reveal your real IP.
-- **Kill switch (known risk):** it adds a Windows Firewall rule that blocks all outbound traffic plus allow rules for Proxy0x and loopback. Windows Firewall gives block rules precedence over allow rules, so verify on your machine that Proxy0x itself still connects before relying on it. The rules persist if the app is killed or uninstalled while the switch is on; turn it off from the app (UAC prompt) to remove them.
+- **Kill switch scope:** programs that already have their own outbound allow rule in Windows Firewall (Windows services, Store apps, some games and launchers) keep network access, and DNS lookups are allowed. If Proxy0x crashes while the switch is on, the block stays until you turn it off in the app (fail closed). Details: [docs/security.md](docs/security.md#kill-switch-internalkillswitch).
 - **"DNS leak test"** compares the exit IP through the proxy with your direct IP. It is an exit-IP check, not a DNS resolver test.
 - **Remote resources:** the UI loads Google Fonts, which reveals your IP to Google when no proxy is connected.
 - **Single active proxy:** connecting one proxy disconnects the previous one.

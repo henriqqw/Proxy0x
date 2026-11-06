@@ -30,6 +30,10 @@ func SysProxyBackupFile() string {
 	return filepath.Join(DataDir(), "sysproxy-backup.json")
 }
 
+func KillSwitchBackupFile() string {
+	return filepath.Join(DataDir(), "killswitch-backup.json")
+}
+
 func FilePath() string {
 	return filepath.Join(DataDir(), "config.json")
 }

@@ -56,6 +56,7 @@ All under `%AppData%` (`os.UserConfigDir()`):
 | `Proxy0x/.key` | `dpapi:<base64>` | App or MCP (first use) | AES-256 key protected with DPAPI (current user) |
 | `Proxy0x/.key.legacy` | 32 raw bytes | App (once, on migration) | Pre-DPAPI key, kept as a backup |
 | `Proxy0x/sysproxy-backup.json` | JSON (below) | App, while connected | User's Windows proxy settings to restore |
+| `Proxy0x/killswitch-backup.json` | JSON `{"domain": "...", "private": "...", "public": "..."}`, each `<inbound>,<outbound>` as netsh prints it (lowercase) | App, while the kill switch is on | Firewall policy per profile to restore on disable |
 | MCP client config + `<file>.proxy0x.bak` | JSON | App (MCP integration) | `mcpServers.proxy0x` entry and backup |
 
 `sysproxy-backup.json`:

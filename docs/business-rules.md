@@ -46,7 +46,7 @@ There is no retry limit or backoff: if the new proxy also drops, the next health
 
 ## Kill Switch
 
-Toggle in Settings → Security (`config.json` → `killSwitch`). Adds Windows Firewall rules that block outbound traffic except for Proxy0x and loopback, via an elevated script (UAC). Turning it off — or quitting the app — removes the rules (UAC again); it is not re-enabled automatically on the next start. Risks and limitations: `docs/security.md` → Kill switch.
+Toggle in Settings → Security. Sets the Windows Firewall default outbound action to block (the previous policy is saved) and allows only Proxy0x, loopback and DNS, after one UAC prompt. The toggle shows the real firewall state. Turning it off or quitting the app restores the previous policy (UAC again); it is not re-enabled automatically on the next start. If the app crashes, the block stays until it is turned off; uninstalling removes it. Details and limitations: `docs/security.md` → Kill switch.
 
 ## Connect Fastest
 
