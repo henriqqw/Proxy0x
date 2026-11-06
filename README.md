@@ -10,8 +10,8 @@
   <a href="https://wails.io/"><img src="https://img.shields.io/badge/Wails-2.16-DF0000?style=flat-square" alt="Wails 2.16"></a>
   <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-18-149ECA?style=flat-square&logo=react&logoColor=white" alt="React 18"></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.6-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript 5.6"></a>
-  <a href="https://github.com/henriqqw/Proxy0x/releases"><img src="https://img.shields.io/badge/Windows%20x64-desktop-4b5563?style=flat-square" alt="Windows x64"></a>
-  <a href="https://github.com/henriqqw/Proxy0x/releases"><img src="https://img.shields.io/badge/binary-~10MB-2ea44f?style=flat-square" alt="Single binary ~10MB"></a>
+  <a href="https://github.com/henriqqw/Proxy0x/releases"><img src="https://img.shields.io/badge/Windows_x64-desktop-4b5563?style=flat-square&logo=windows&logoColor=white" alt="Windows x64"></a>
+  <a href="https://github.com/henriqqw/Proxy0x/releases"><img src="https://img.shields.io/badge/binary-%7E10MB-2ea44f?style=flat-square" alt="Single binary ~10MB"></a>
 </p>
 <p align="center">
   <a href="https://github.com/henriqqw/Proxy0x/releases">⬇ Download</a>
