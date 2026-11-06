@@ -46,9 +46,8 @@ func (a *App) onTrayReady() {
 	mShow := systray.AddMenuItem("Show Proxy0x", "Show the main window")
 	systray.AddSeparator()
 
-	mConnectAll := systray.AddMenuItem("Connect All", "Connect all proxies")
-	mDisconnectAll := systray.AddMenuItem("Disconnect All", "Disconnect all proxies")
-	mRotateAll := systray.AddMenuItem("Rotate All", "Rotate all active proxies")
+	mDisconnect := systray.AddMenuItem("Disconnect", "Disconnect the active proxy")
+	mRotate := systray.AddMenuItem("Rotate", "Rotate the active proxy's IP")
 	systray.AddSeparator()
 
 	mLang := systray.AddMenuItem("Language", "Change language")
@@ -67,44 +66,14 @@ func (a *App) onTrayReady() {
 		runtime.WindowShow(a.ctx)
 	})
 
-	mConnectAll.Click(func() {
-		a.mu.RLock()
-		var offlineIDs []string
-		for id, p := range a.proxies {
-			if p.Status == StatusOffline {
-				offlineIDs = append(offlineIDs, id)
-			}
-		}
-		a.mu.RUnlock()
-		for _, id := range offlineIDs {
-			go a.ConnectProxy(id)
-		}
-	})
-
-	mDisconnectAll.Click(func() {
-		a.mu.RLock()
-		var activeIDs []string
-		for id, p := range a.proxies {
-			if p.Active {
-				activeIDs = append(activeIDs, id)
-			}
-		}
-		a.mu.RUnlock()
-		for _, id := range activeIDs {
+	mDisconnect.Click(func() {
+		if id := a.activeProxyID(); id != "" {
 			a.DisconnectProxy(id)
 		}
 	})
 
-	mRotateAll.Click(func() {
-		a.mu.RLock()
-		var activeIDs []string
-		for id, p := range a.proxies {
-			if p.Active {
-				activeIDs = append(activeIDs, id)
-			}
-		}
-		a.mu.RUnlock()
-		for _, id := range activeIDs {
+	mRotate.Click(func() {
+		if id := a.activeProxyID(); id != "" {
 			go a.RotateProxy(id)
 		}
 	})
@@ -124,3 +93,14 @@ func (a *App) onTrayReady() {
 }
 
 func (a *App) onTrayExit() {}
+
+func (a *App) activeProxyID() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	for id, p := range a.proxies {
+		if p.Active {
+			return id
+		}
+	}
+	return ""
+}
