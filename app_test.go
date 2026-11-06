@@ -171,6 +171,50 @@ func TestRemoveActiveProxyDisconnectsFirst(t *testing.T) {
 	}
 }
 
+func TestConnectRequiresHTTP200AndValidIP(t *testing.T) {
+	cases := map[string]struct {
+		status int
+		body   string
+	}{
+		"rate limited": {429, `{"ip":"203.0.113.7"}`},
+		"server error": {500, ``},
+		"garbage body": {200, `<html>blocked</html>`},
+		"empty ip":     {200, `{"ip":""}`},
+		"invalid ip":   {200, `{"ip":"not-an-ip"}`},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			a, sys := newTestApp(t)
+			up, host, port := startFakeUpstream(t)
+			up.set(tc.status, tc.body)
+			p := addTestProxy(t, a, host, port)
+
+			if _, err := a.ConnectProxy(p.ID); err == nil {
+				t.Fatal("connect should fail")
+			}
+			if p.Status != StatusError || p.Active || sys.isEnabled() {
+				t.Fatalf("status=%s active=%v sysproxy=%v, want error/false/false", p.Status, p.Active, sys.isEnabled())
+			}
+		})
+	}
+}
+
+func TestHealthCheckFailsOnNon200(t *testing.T) {
+	a, _ := newTestApp(t)
+	up, host, port := startFakeUpstream(t)
+	p := addTestProxy(t, a, host, port)
+	if _, err := a.ConnectProxy(p.ID); err != nil {
+		t.Fatal(err)
+	}
+	up.set(503, ``)
+
+	a.CheckHealth(p.ID)
+
+	if p.Status != StatusError {
+		t.Fatalf("status=%s, want error", p.Status)
+	}
+}
+
 func TestGetOrCreateClientIsSafeForConcurrentReaders(t *testing.T) {
 	for round := 0; round < 20; round++ {
 		a, _ := newTestApp(t)

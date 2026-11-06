@@ -626,6 +626,32 @@ func (a *App) setLocalProxy(p *ProxyEntry, id string) error {
 	return nil
 }
 
+// verifyExitIP fetches the exit IP through client. It succeeds only with
+// HTTP 200 and a body whose "ip" field parses as an IP address.
+func verifyExitIP(client *http.Client) (string, int64, error) {
+	start := time.Now()
+	resp, err := client.Get(ipCheckURL)
+	if err != nil {
+		return "", 0, err
+	}
+	defer resp.Body.Close()
+	latency := time.Since(start).Milliseconds()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", 0, fmt.Errorf("ip check returned HTTP %d", resp.StatusCode)
+	}
+	var result struct {
+		IP string `json:"ip"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&result); err != nil {
+		return "", 0, fmt.Errorf("ip check: invalid response: %w", err)
+	}
+	if net.ParseIP(result.IP) == nil {
+		return "", 0, fmt.Errorf("ip check: invalid IP %q", result.IP)
+	}
+	return result.IP, latency, nil
+}
+
 // failLocalProxy marks p as failed after its local proxy could not be (re)started.
 func (a *App) failLocalProxy(p *ProxyEntry, id, action string, err error) (*ProxyEntry, error) {
 	a.mu.Lock()
@@ -678,10 +704,7 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 
 	a.emitEvent("proxy-updated", p)
 
-	start := time.Now()
-	resp, err := client.Get(ipCheckURL)
-	latency := time.Since(start).Milliseconds()
-
+	ip, latency, err := verifyExitIP(client)
 	if err != nil {
 		a.mu.Lock()
 		p.Status = StatusError
@@ -692,17 +715,10 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 		a.mu.Unlock()
 		a.addLog("connect-failed", id, p.Host+":"+p.Port, err.Error())
 		a.emitEvent("proxy-updated", p)
-		return p, fmt.Errorf("connection failed: %v", err)
+		return p, fmt.Errorf("connection failed: %w", err)
 	}
-	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
-	var ipResult struct {
-		IP string `json:"ip"`
-	}
-	json.Unmarshal(body, &ipResult)
-
-	geo := a.fetchGeoInfo(client, ipResult.IP)
+	geo := a.fetchGeoInfo(client, ip)
 
 	if err := a.setLocalProxy(p, id); err != nil {
 		return a.failLocalProxy(p, id, "connect", err)
@@ -710,7 +726,7 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 
 	a.mu.Lock()
 	p.Status = StatusConnected
-	p.CurrentIP = ipResult.IP
+	p.CurrentIP = ip
 	p.Latency = latency
 	p.Location = geo
 	p.Active = true
@@ -718,7 +734,7 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 	p.ConnectedAt = time.Now().Format(time.RFC3339)
 	a.mu.Unlock()
 
-	a.addLog("connected", id, p.Host+":"+p.Port, fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
+	a.addLog("connected", id, p.Host+":"+p.Port, fmt.Sprintf("IP: %s, %dms", ip, latency))
 	a.emitEvent("proxy-updated", p)
 	return p, nil
 }
@@ -767,31 +783,21 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 
 	a.emitEvent("proxy-updated", p)
 
-	start := time.Now()
-	resp, err := client.Get(ipCheckURL)
-	latency := time.Since(start).Milliseconds()
-
+	ip, latency, err := verifyExitIP(client)
 	if err != nil {
 		a.mu.Lock()
 		p.Status = StatusError
 		a.mu.Unlock()
 		a.addLog("rotate-failed", id, p.Host+":"+p.Port, err.Error())
 		a.emitEvent("proxy-updated", p)
-		return p, fmt.Errorf("rotation failed: %v", err)
+		return p, fmt.Errorf("rotation failed: %w", err)
 	}
-	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
-	var ipResult struct {
-		IP string `json:"ip"`
-	}
-	json.Unmarshal(body, &ipResult)
-
-	geo := a.fetchGeoInfo(client, ipResult.IP)
+	geo := a.fetchGeoInfo(client, ip)
 
 	a.mu.Lock()
 	p.Status = StatusConnected
-	p.CurrentIP = ipResult.IP
+	p.CurrentIP = ip
 	p.Latency = latency
 	p.Location = geo
 	p.Active = true
@@ -802,7 +808,7 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 		return a.failLocalProxy(p, id, "rotate", err)
 	}
 
-	a.addLog("rotated", id, p.Host+":"+p.Port, fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
+	a.addLog("rotated", id, p.Host+":"+p.Port, fmt.Sprintf("IP: %s, %dms", ip, latency))
 	a.emitEvent("proxy-updated", p)
 	return p, nil
 }
@@ -825,10 +831,7 @@ func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
 	prevStatus := p.Status
 	a.mu.RUnlock()
 
-	start := time.Now()
-	resp, err := client.Get(ipCheckURL)
-	latency := time.Since(start).Milliseconds()
-
+	ip, latency, err := verifyExitIP(client)
 	if err != nil {
 		a.mu.Lock()
 		p.Status = StatusError
@@ -844,20 +847,13 @@ func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
 		a.emitEvent("proxy-updated", p)
 		return p, nil
 	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	var ipResult struct {
-		IP string `json:"ip"`
-	}
-	json.Unmarshal(body, &ipResult)
 
 	a.mu.Lock()
 	p.Latency = latency
 	p.LastCheck = time.Now().Format(time.RFC3339)
-	if ipResult.IP != "" && ipResult.IP != p.CurrentIP {
-		p.CurrentIP = ipResult.IP
-		geo := a.fetchGeoInfo(client, ipResult.IP)
+	if ip != p.CurrentIP {
+		p.CurrentIP = ip
+		geo := a.fetchGeoInfo(client, ip)
 		p.Location = geo
 	}
 	a.mu.Unlock()
@@ -1018,17 +1014,14 @@ func (a *App) BenchmarkProxy(id string) (map[string]interface{}, error) {
 
 	results := map[string]interface{}{}
 
-	start := time.Now()
-	resp, err := client.Get(ipCheckURL)
-	connectMs := time.Since(start).Milliseconds()
+	_, connectMs, err := verifyExitIP(client)
 	if err != nil {
-		return nil, fmt.Errorf("connect failed: %v", err)
+		return nil, fmt.Errorf("connect failed: %w", err)
 	}
-	resp.Body.Close()
 	results["connectMs"] = connectMs
 
-	start = time.Now()
-	resp, err = client.Get(speedTestURL)
+	start := time.Now()
+	resp, err := client.Get(speedTestURL)
 	if err != nil {
 		results["downloadMs"] = int64(-1)
 		results["downloadMbps"] = float64(0)
