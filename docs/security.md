@@ -49,6 +49,13 @@ Only `http` and `https` are allowed. `ftp`, `file`, `javascript`, and schemeless
 | `::1/128` | IPv6 loopback |
 | `fc00::/7` | IPv6 ULA |
 | `fe80::/10` | IPv6 link-local |
+| `100.64.0.0/10` | Carrier-grade NAT (RFC 6598) |
+| `198.18.0.0/15` | Benchmarking (RFC 2544) |
+| `224.0.0.0/4`, `240.0.0.0/4` | Multicast, reserved |
+| `64:ff9b::/96` | NAT64 (embeds IPv4) |
+| `2002::/16` | 6to4 (embeds IPv4) |
+
+IPv4-mapped IPv6 addresses (`::ffff:a.b.c.d`) are checked as their IPv4 form.
 
 ### Cloud metadata IPs
 
@@ -66,9 +73,13 @@ Only `http` and `https` are allowed. `ftp`, `file`, `javascript`, and schemeless
 - Any hostname ending in `.local`, `.localhost`, `.internal`
 - `metadata.google.internal`
 
+Hostnames are lowercased and a trailing dot is removed before these checks (`metadata.google.internal.` is blocked).
+
 ### DNS resolution check
 
-After hostname validation, the URL's hostname is resolved via DNS. Every returned IP address is checked against the blocked IP ranges above. This prevents DNS rebinding attacks where a hostname resolves to a private IP.
+After hostname validation, the URL's hostname is resolved via DNS. Every returned IP address is checked against the blocked IP ranges above. **If resolution fails, the URL is rejected** (fail closed).
+
+Limitation: this is a point-in-time check. The request itself is sent through the upstream proxy, which resolves the name again, so it does not prevent DNS rebinding. The practical impact is bounded because egress happens from the proxy provider's network, not the user's.
 
 ### Redirect validation
 
@@ -81,6 +92,8 @@ Response bodies from `proxy_fetch` are capped at **100 KB**. Larger responses ar
 ## Credential stripping
 
 The `proxy_list` MCP tool and the `proxy://pool` MCP resource strip `username` and `password` fields from output. AI agents see proxy hosts and ports but never credentials.
+
+The desktop app never sends the proxy password to the webview: every proxy returned by a binding (`GetProxies`, `ConnectProxy`, …) or emitted in a `proxy-updated` event is a copy taken under the lock with `password` blanked. The Go side keeps the password for connecting and persisting. `ExportProxies` is the only path that returns credentials, on explicit user action.
 
 ## Windows system proxy
 
