@@ -18,6 +18,10 @@ export function CheckHealth(arg1) {
   return window['go']['main']['App']['CheckHealth'](arg1);
 }
 
+export function CheckMCPHealth() {
+  return window['go']['main']['App']['CheckMCPHealth']();
+}
+
 export function CloseWindow() {
   return window['go']['main']['App']['CloseWindow']();
 }
@@ -62,6 +66,10 @@ export function GetLanguage() {
   return window['go']['main']['App']['GetLanguage']();
 }
 
+export function GetMCPStatus() {
+  return window['go']['main']['App']['GetMCPStatus']();
+}
+
 export function GetMyIP() {
   return window['go']['main']['App']['GetMyIP']();
 }
@@ -72,6 +80,10 @@ export function GetProxies() {
 
 export function GetTheme() {
   return window['go']['main']['App']['GetTheme']();
+}
+
+export function InstallMCPConfig() {
+  return window['go']['main']['App']['InstallMCPConfig']();
 }
 
 export function MinimizeWindow() {
@@ -124,4 +136,8 @@ export function ShowWindow() {
 
 export function ToggleMaximize() {
   return window['go']['main']['App']['ToggleMaximize']();
+}
+
+export function UninstallMCPConfig() {
+  return window['go']['main']['App']['UninstallMCPConfig']();
 }

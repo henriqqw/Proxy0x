@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, RotateCw, Activity, Download, Upload, Globe, ClipboardCopy, Check, Minus, Plus, Github, Bug } from 'lucide-react'
+import { ArrowLeft, RotateCw, Activity, Download, Upload, Globe, ClipboardCopy, Check, Minus, Plus, Github, Bug, Bot, Loader2, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
 import {
   GetAutoRotateInterval, SetAutoRotateInterval,
   ExportProxies, AddProxiesBatch,
+  GetMCPStatus, InstallMCPConfig, UninstallMCPConfig, CheckMCPHealth,
 } from 'wailsjs/go/main/App'
 import { languages } from '../i18n/translations'
 import { useTranslation } from '../i18n/LanguageContext'
@@ -20,10 +21,19 @@ export default function SettingsPage({ onBack, onImported }: Props) {
   const [importMode, setImportMode] = useState(false)
   const [importText, setImportText] = useState('')
   const [importing, setImporting] = useState(false)
-
+  const [mcpInstalled, setMcpInstalled] = useState(false)
+  const [mcpExeExists, setMcpExeExists] = useState(true)
+  const [mcpLoading, setMcpLoading] = useState(false)
+  const [mcpHealth, setMcpHealth] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle')
+  const [mcpError, setMcpError] = useState('')
+  const [mcpDone, setMcpDone] = useState(false)
 
   useEffect(() => {
     GetAutoRotateInterval().then(setAutoRotate).catch(() => {})
+    GetMCPStatus().then(s => {
+      setMcpInstalled(s.installed)
+      setMcpExeExists(s.exeExists)
+    }).catch(() => {})
   }, [])
 
   const rotatePresets = [
@@ -180,6 +190,66 @@ export default function SettingsPage({ onBack, onImported }: Props) {
                   {importing ? '...' : t.importAll}
                 </button>
               </div>
+            )}
+          </div>
+        </Section>
+
+        {/* MCP Integration */}
+        <Section icon={<Bot size={13} />} title={t.mcpIntegration} desc={t.mcpIntegrationDesc}>
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {mcpHealth === 'checking' ? (
+                  <Loader2 size={12} className="text-text-tertiary animate-spin" />
+                ) : mcpHealth === 'ok' ? (
+                  <CheckCircle2 size={12} className="text-[#68E045]" />
+                ) : mcpHealth === 'fail' ? (
+                  <XCircle size={12} className="text-red-400" />
+                ) : !mcpExeExists ? (
+                  <AlertTriangle size={12} className="text-amber-400" />
+                ) : (
+                  <span className={`w-1.5 h-1.5 rounded-full ${mcpInstalled ? 'bg-[#68E045]' : 'bg-surface-4'}`} />
+                )}
+                <span className="text-xs text-text-secondary">
+                  {mcpHealth === 'checking' ? t.mcpChecking
+                    : mcpHealth === 'ok' ? t.mcpHealthOk
+                    : mcpHealth === 'fail' ? (mcpError || t.mcpHealthFail)
+                    : !mcpExeExists ? t.mcpExeNotFound
+                    : mcpInstalled ? t.mcpConnected
+                    : t.mcpNotConnected}
+                </span>
+              </div>
+              <Toggle
+                active={mcpInstalled}
+                onToggle={async () => {
+                  if (mcpLoading) return
+                  setMcpLoading(true)
+                  setMcpHealth('idle')
+                  setMcpError('')
+                  try {
+                    if (mcpInstalled) {
+                      await UninstallMCPConfig()
+                      setMcpInstalled(false)
+                    } else {
+                      await InstallMCPConfig()
+                      setMcpInstalled(true)
+                      setMcpDone(true)
+                      setTimeout(() => setMcpDone(false), 3000)
+                      setMcpHealth('checking')
+                      const result = await CheckMCPHealth()
+                      setMcpHealth(result.healthOk ? 'ok' : 'fail')
+                      if (!result.healthOk && result.healthError) setMcpError(result.healthError)
+                    }
+                  } catch (e: any) {
+                    setMcpHealth('fail')
+                    setMcpError(e?.message || t.mcpHealthFail)
+                  }
+                  setMcpLoading(false)
+                }}
+              />
+            </div>
+            {mcpDone && (
+              <p className="text-[10px] text-amber-400 ml-[21px]">{t.mcpRestartClaude}</p>
             )}
           </div>
         </Section>

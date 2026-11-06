@@ -50,6 +50,28 @@ export namespace main {
 	        this.detail = source["detail"];
 	    }
 	}
+	export class MCPStatus {
+	    installed: boolean;
+	    exePath: string;
+	    exeExists: boolean;
+	    configPath: string;
+	    healthOk: boolean;
+	    healthError?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.installed = source["installed"];
+	        this.exePath = source["exePath"];
+	        this.exeExists = source["exeExists"];
+	        this.configPath = source["configPath"];
+	        this.healthOk = source["healthOk"];
+	        this.healthError = source["healthError"];
+	    }
+	}
 	export class ProxyEntry {
 	    id: string;
 	    host: string;

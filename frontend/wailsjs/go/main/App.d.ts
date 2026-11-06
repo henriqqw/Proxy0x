@@ -10,6 +10,8 @@ export function BenchmarkProxy(arg1:string):Promise<Record<string, any>>;
 
 export function CheckHealth(arg1:string):Promise<main.ProxyEntry>;
 
+export function CheckMCPHealth():Promise<main.MCPStatus>;
+
 export function CloseWindow():Promise<void>;
 
 export function ConnectGroup(arg1:string):Promise<void>;
@@ -32,11 +34,15 @@ export function GetHealthCheckInterval():Promise<number>;
 
 export function GetLanguage():Promise<string>;
 
+export function GetMCPStatus():Promise<main.MCPStatus>;
+
 export function GetMyIP():Promise<string>;
 
 export function GetProxies():Promise<Array<main.ProxyEntry>>;
 
 export function GetTheme():Promise<string>;
+
+export function InstallMCPConfig():Promise<void>;
 
 export function MinimizeWindow():Promise<void>;
 
@@ -63,3 +69,5 @@ export function SetTheme(arg1:string):Promise<void>;
 export function ShowWindow():Promise<void>;
 
 export function ToggleMaximize():Promise<void>;
+
+export function UninstallMCPConfig():Promise<void>;
