@@ -130,6 +130,27 @@ func (a *App) emitEvent(name string, data ...interface{}) {
 	a.emit(a.ctx, name, data...)
 }
 
+// view copies p under the lock for bindings and events, so Wails marshals a
+// value no goroutine is writing to. Callers must not hold a.mu.
+func (a *App) view(p *ProxyEntry) *ProxyEntry {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return snapshot(p)
+}
+
+func snapshot(p *ProxyEntry) *ProxyEntry {
+	c := *p
+	if p.Location != nil {
+		loc := *p.Location
+		c.Location = &loc
+	}
+	return &c
+}
+
+func (a *App) emitProxy(p *ProxyEntry) {
+	a.emitEvent("proxy-updated", a.view(p))
+}
+
 // --- Lifecycle ---
 
 func (a *App) startup(ctx context.Context) {
@@ -393,10 +414,10 @@ func (a *App) AddProxy(raw string) (*ProxyEntry, error) {
 
 	a.addLog("added", p.ID, p.Host+":"+p.Port, "")
 	if err := a.saveProxies(); err != nil {
-		return p, err
+		return a.view(p), err
 	}
-	a.emitEvent("proxy-updated", p)
-	return p, nil
+	a.emitProxy(p)
+	return a.view(p), nil
 }
 
 func (a *App) AddProxiesBatch(raw string) ([]*ProxyEntry, error) {
@@ -460,7 +481,7 @@ func (a *App) GetProxies() []*ProxyEntry {
 
 	result := make([]*ProxyEntry, 0, len(a.proxies))
 	for _, p := range a.proxies {
-		result = append(result, p)
+		result = append(result, snapshot(p))
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Order < result[j].Order
@@ -526,10 +547,10 @@ func (a *App) SetProxyGroup(id, group string) (*ProxyEntry, error) {
 	p.Group = group
 	a.mu.Unlock()
 	if err := a.saveProxies(); err != nil {
-		return p, err
+		return a.view(p), err
 	}
-	a.emitEvent("proxy-updated", p)
-	return p, nil
+	a.emitProxy(p)
+	return a.view(p), nil
 }
 
 func (a *App) ConnectGroup(group string) error {
@@ -671,6 +692,10 @@ func (a *App) toUpstreamConfig(p *ProxyEntry) proxy.UpstreamConfig {
 }
 
 func (a *App) setLocalProxy(p *ProxyEntry, id string) error {
+	a.mu.RLock()
+	cfg := a.toUpstreamConfig(p)
+	a.mu.RUnlock()
+
 	a.lpMu.Lock()
 	defer a.lpMu.Unlock()
 
@@ -680,7 +705,7 @@ func (a *App) setLocalProxy(p *ProxyEntry, id string) error {
 		a.sysproxy.Clear()
 	}
 
-	ls, err := a.newLocalServer(a.toUpstreamConfig(p))
+	ls, err := a.newLocalServer(cfg)
 	if err != nil {
 		return fmt.Errorf("start local proxy: %w", err)
 	}
@@ -689,7 +714,7 @@ func (a *App) setLocalProxy(p *ProxyEntry, id string) error {
 		return fmt.Errorf("set system proxy: %w", err)
 	}
 	a.localProxy = ls
-	a.addLog("system-proxy", id, p.Host+":"+p.Port, fmt.Sprintf("local proxy on port %d", ls.Port()))
+	a.addLog("system-proxy", id, net.JoinHostPort(cfg.Host, cfg.Port), fmt.Sprintf("local proxy on port %d", ls.Port()))
 	return nil
 }
 
@@ -747,8 +772,8 @@ func (a *App) failLocalProxy(p *ProxyEntry, id, action string, err error) (*Prox
 	p.LastCheck = time.Now().Format(time.RFC3339)
 	a.mu.Unlock()
 	a.addLog(action+"-failed", id, p.Host+":"+p.Port, err.Error())
-	a.emitEvent("proxy-updated", p)
-	return p, err
+	a.emitProxy(p)
+	return a.view(p), err
 }
 
 func (a *App) clearLocalProxyIf(id string) {
@@ -786,7 +811,7 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 	client := a.getOrCreateClient(p)
 	a.mu.Unlock()
 
-	a.emitEvent("proxy-updated", p)
+	a.emitProxy(p)
 
 	ip, latency, err := verifyExitIP(client)
 	if err != nil {
@@ -798,8 +823,8 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 		p.LastCheck = time.Now().Format(time.RFC3339)
 		a.mu.Unlock()
 		a.addLog("connect-failed", id, p.Host+":"+p.Port, err.Error())
-		a.emitEvent("proxy-updated", p)
-		return p, fmt.Errorf("connection failed: %w", err)
+		a.emitProxy(p)
+		return a.view(p), fmt.Errorf("connection failed: %w", err)
 	}
 
 	geo := a.fetchGeoInfo(client, ip)
@@ -819,8 +844,8 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 	a.mu.Unlock()
 
 	a.addLog("connected", id, p.Host+":"+p.Port, fmt.Sprintf("IP: %s, %dms", ip, latency))
-	a.emitEvent("proxy-updated", p)
-	return p, nil
+	a.emitProxy(p)
+	return a.view(p), nil
 }
 
 func (a *App) DisconnectProxy(id string) (*ProxyEntry, error) {
@@ -847,8 +872,8 @@ func (a *App) DisconnectProxy(id string) (*ProxyEntry, error) {
 	a.clearLocalProxyIf(id)
 
 	a.addLog("disconnected", id, p.Host+":"+p.Port, "")
-	a.emitEvent("proxy-updated", p)
-	return p, nil
+	a.emitProxy(p)
+	return a.view(p), nil
 }
 
 func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
@@ -866,7 +891,7 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 	p.Status = StatusConnecting
 	a.mu.Unlock()
 
-	a.emitEvent("proxy-updated", p)
+	a.emitProxy(p)
 
 	ip, latency, err := verifyExitIP(client)
 	if err != nil {
@@ -875,8 +900,8 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 		p.Status = prevStatus
 		a.mu.Unlock()
 		a.addLog("rotate-failed", id, p.Host+":"+p.Port, err.Error())
-		a.emitEvent("proxy-updated", p)
-		return p, fmt.Errorf("rotation failed: %w", err)
+		a.emitProxy(p)
+		return a.view(p), fmt.Errorf("rotation failed: %w", err)
 	}
 
 	geo := a.fetchGeoInfo(client, ip)
@@ -897,8 +922,8 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 	}
 
 	a.addLog("rotated", id, p.Host+":"+p.Port, fmt.Sprintf("IP: %s, %dms", ip, latency))
-	a.emitEvent("proxy-updated", p)
-	return p, nil
+	a.emitProxy(p)
+	return a.view(p), nil
 }
 
 func (a *App) RestartProxy(id string) (*ProxyEntry, error) {
@@ -932,8 +957,8 @@ func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
 				"host": p.Host + ":" + p.Port,
 			})
 		}
-		a.emitEvent("proxy-updated", p)
-		return p, nil
+		a.emitProxy(p)
+		return a.view(p), nil
 	}
 
 	a.mu.RLock()
@@ -956,8 +981,8 @@ func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
 	}
 	a.mu.Unlock()
 
-	a.emitEvent("proxy-updated", p)
-	return p, nil
+	a.emitProxy(p)
+	return a.view(p), nil
 }
 
 func (a *App) fetchGeoInfo(client *http.Client, ip string) *GeoInfo {

@@ -120,7 +120,39 @@ func addTestProxy(t *testing.T, a *App, host, port string) *ProxyEntry {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return p
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.proxies[p.ID] // the internal entry, not the UI copy
+}
+
+func TestBindingsAndEventsReturnCopies(t *testing.T) {
+	a, _ := newTestApp(t)
+	var mu sync.Mutex
+	var emitted []*ProxyEntry
+	a.emit = func(_ context.Context, name string, data ...interface{}) {
+		if name == "proxy-updated" {
+			mu.Lock()
+			emitted = append(emitted, data[0].(*ProxyEntry))
+			mu.Unlock()
+		}
+	}
+	_, host, port := startFakeUpstream(t)
+	p := addTestProxy(t, a, host, port)
+	returned, err := a.ConnectProxy(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := a.GetProxies()[0]
+
+	a.mu.Lock()
+	p.Status = "mutated-internally"
+	a.mu.Unlock()
+
+	for name, got := range map[string]*ProxyEntry{"returned": returned, "listed": listed, "emitted": emitted[len(emitted)-1]} {
+		if got == p || got.Status == "mutated-internally" {
+			t.Fatalf("%s value shares memory with the internal entry", name)
+		}
+	}
 }
 
 func failingLocalServer(proxy.UpstreamConfig) (*proxy.LocalServer, error) {
