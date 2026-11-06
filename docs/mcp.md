@@ -5,11 +5,13 @@ Proxy0x exposes its proxy pool to AI agents via the [Model Context Protocol](htt
 ## Architecture
 
 ```
-Claude Desktop ──stdio──► proxy0x-mcp.exe ──► %AppData%/Proxy0x/proxies.json
-                                              (shared with the Wails app)
+MCP client ──stdio──► proxy0x-mcp.exe ──reads──► %AppData%/Proxy0x/proxies.json
+(Claude Desktop,                                 (written only by the desktop app)
+ Codex, Cursor,
+ Windsurf)
 ```
 
-Both the Wails desktop app and the MCP server read and write the same AES-256-GCM encrypted proxy store at `%AppData%/Proxy0x/proxies.json`. The encryption key lives at `%AppData%/Proxy0x/.key` and is created on first use.
+The MCP server **reads** the desktop app's encrypted store at `%AppData%/Proxy0x/proxies.json` once at startup and never writes it. Decryption goes through `internal/crypto` — the same code the app uses — so it reads the DPAPI-protected `%AppData%/Proxy0x/.key` and never creates or rewrites it. Proxies added in the app after the MCP server started are not visible until the MCP client restarts the server.
 
 ### Package structure
 
@@ -33,9 +35,11 @@ Both the Wails desktop app and the MCP server read and write the same AES-256-GC
 | `proxy_rotate` | `id` | Generate a new session ID for the proxy, getting a different IP. |
 | `proxy_add` | `proxy` (host:port[:user:pass]) | **Read-only server:** always returns an error asking to add proxies in the Proxy0x app. |
 | `proxy_remove` | `id` | **Read-only server:** always returns an error asking to remove proxies in the Proxy0x app. |
-
-The MCP server never writes `proxies.json`. The desktop app owns the file; two processes rewriting it would silently undo each other's changes. Connect, disconnect and rotate only change the MCP server's in-memory state.
 | `proxy_health` | — | Health-check all active proxies. Returns per-proxy results. |
+
+The MCP server never writes `proxies.json`. The desktop app owns the file; two processes rewriting it would silently undo each other's changes. Connect, disconnect and rotate only change the MCP server's in-memory state (they do not affect the desktop app's connection or the Windows system proxy).
+
+`proxy_list` and `proxy://pool` strip `username` and `password` and no longer include a `score` field.
 
 ### Proxy selection
 
@@ -43,13 +47,12 @@ Only one proxy can be active at a time (connecting one disconnects the other). `
 
 ### SSRF protection
 
-Every URL passed to `proxy_fetch` is validated before the request is made:
+Every URL passed to `proxy_fetch` is validated before the request is made (full rules in `docs/security.md`):
 
 - **Scheme:** only `http` and `https` allowed
-- **Blocked hostnames:** `localhost`, `metadata`, and any name ending in `.local`, `.localhost`, `.internal`
-- **Blocked IPs:** private ranges (10/8, 172.16/12, 192.168/16, 127/8), link-local (169.254/16), zeroes (0/8), IPv6 loopback (::1), ULA (fc00::/7), link-local v6 (fe80::/10)
-- **Cloud metadata:** 169.254.169.254, 169.254.170.2, 100.100.100.200, fd00:ec2::254
-- **DNS resolution:** hostnames are resolved and every resulting IP is checked
+- **Blocked hostnames:** `localhost`, `metadata`, and any name ending in `.local`, `.localhost`, `.internal` (lowercased, trailing dot removed)
+- **Blocked IPs:** private, loopback, link-local, CGNAT, benchmarking, multicast/reserved, NAT64, 6to4, IPv6 ULA/link-local, cloud metadata addresses
+- **DNS resolution:** every resolved IP is checked; a failed lookup rejects the URL (fail closed). It does not prevent DNS rebinding, because the upstream proxy resolves the name again.
 - **Redirect hops:** up to 10 redirects, each hop re-validated
 
 ## Resources (3)
@@ -69,40 +72,38 @@ Every URL passed to `proxy_fetch` is validated before the request is made:
 
 ## One-click integration
 
-The Wails app provides a toggle in **Settings → Claude MCP** that:
+**Settings → MCP Integration** shows one card per supported client. A client is "detected" when its folder exists:
 
-1. **`InstallMCPConfig()`** — writes the MCP server entry into `%AppData%/Claude/claude_desktop_config.json`:
-   ```json
-   {
-     "mcpServers": {
-       "proxy0x": {
-         "command": "C:\\...\\proxy0x-mcp.exe",
-         "args": []
-       }
-     }
-   }
-   ```
-   Preserves any existing entries in the config file. If the existing file is not valid JSON the install aborts with an error and the file is left untouched. Before writing, a backup is saved as `<file>.proxy0x.bak`, and the write is atomic (temp file + rename).
+| Client (`id`) | Config file written | Detected by |
+|---------------|--------------------|-------------|
+| Claude Desktop (`claude-desktop`) | `%AppData%\Claude\claude_desktop_config.json` | `%AppData%\Claude` |
+| Codex (`codex`) | `~\.codex\config.json` | `~\.codex` |
+| Cursor (`cursor`) | `~\.cursor\mcp.json` | `%AppData%\Cursor` or `~\.cursor` |
+| Windsurf (`windsurf`) | `~\.codeium\windsurf\mcp_config.json` | `%AppData%\Windsurf` or `~\.codeium\windsurf` |
 
-2. **`CheckMCPHealth()`** — spawns the MCP binary, sends a JSON-RPC `initialize` request, and verifies a valid response within 5 seconds.
+Hypothesis (not verified): Codex reads its MCP servers from TOML (`~\.codex\config.toml`), so the JSON entry written for Codex may have no effect.
 
-3. **`UninstallMCPConfig()`** — removes the `proxy0x` key from `mcpServers`.
+Bindings:
 
-After toggling on, restart Claude Desktop to pick up the new config.
+1. **`GetMCPStatus()`** — path of `proxy0x-mcp.exe` (next to `Proxy0x.exe`), whether it exists, and each client's detected/installed state.
+2. **`InstallMCPClient(id)`** — adds `mcpServers.proxy0x = { "command": "<path>\\proxy0x-mcp.exe", "args": [] }`, preserving every other key. If the existing file is not valid JSON the install aborts and the file is left untouched. Before writing, a backup is saved as `<file>.proxy0x.bak`, and the write is atomic (temp file + rename).
+3. **`UninstallMCPClient(id)`** — removes `mcpServers.proxy0x`, with the same backup/atomic write.
+4. **`CheckMCPHealth()`** — starts `proxy0x-mcp.exe` without a console window, sends a JSON-RPC `initialize` request, keeps stdin open until a reply with `result` arrives, and fails after 5 seconds.
+
+Restart the MCP client after installing so it picks up the new config.
 
 ## Building
 
 ```bash
-go build -o proxy0x-mcp.exe ./cmd/proxy0x-mcp/
+go build -ldflags "-s -w" -o build/bin/proxy0x-mcp.exe ./cmd/proxy0x-mcp
 ```
 
-Place the binary next to `Proxy0x.exe` so the one-click integration can find it.
+The installer and the GitHub release ship `proxy0x-mcp.exe` next to `Proxy0x.exe`, where the integration looks for it.
 
 ## Testing
 
 ```bash
-go test ./pkg/proxycore/...
-go test ./internal/mcpserver/...
+go test ./pkg/proxycore/... ./internal/mcpserver/...
 ```
 
-Tests cover: SSRF validation (27 URL cases + 8 IP cases), pool CRUD, encrypted persistence, score-based selection, tool handlers (add, list, status, remove, fetch-SSRF, health), and credential stripping.
+Tests cover: SSRF validation (scheme, hostnames, IP ranges, fail-closed DNS with an injected resolver), pool operations, the store reading the app's DPAPI key without replacing it, the pool never writing `proxies.json`, `ActiveProxy` selection, tool handlers (read-only add/remove, list, status, fetch-SSRF, health) and credential stripping. The integration code (`mcp_integration.go`) has tests in the root package for config preservation, refusal to overwrite invalid JSON and the health check.

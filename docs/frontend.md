@@ -12,157 +12,111 @@ React 18 + TypeScript + Tailwind CSS frontend for the Proxy0x desktop app. Bundl
 | Vite | 6 | Dev server with HMR, production bundler |
 | @dnd-kit | — | Drag-and-drop proxy list reordering |
 | Lucide React | — | Monochrome icon set |
-| flagcdn.com | — | Country flag images (lazy-loaded) |
+| flagcdn.com | — | Country flag images (remote, `FlagIcon`) |
+| Google Fonts | — | Inter font (remote `<link>` in `index.html`) |
 
 ## Component Tree
 
 ```
 App.tsx
-├── LanguageProvider              (i18n context)
-│   └── AppContent
-│       ├── TitleBar              (window controls, theme toggle, language, settings gear)
-│       ├── MyIPBadge             (user's real IP with show/hide)
-│       ├── ProxyForm             (input field, paste button, batch import)
-│       ├── DndContext             (@dnd-kit drag-and-drop wrapper)
-│       │   └── SortableContext
-│       │       └── ProxyCard[]   (sortable proxy cards with stats, speed test, groups)
-│       ├── EmptyState            (illustration when no proxies exist)
-│       └── SettingsPage          (language, auto rotation, import/export, MCP, about)
+└── LanguageProvider                (i18n context)
+    └── AppContent
+        ├── page === 'proxies'
+        │   ├── TitleBar            (window controls, theme toggle, settings gear)
+        │   ├── MyIPBadge           (user's real IP with show/hide)
+        │   ├── ProxyForm           (single add + batch import)
+        │   ├── group filter bar    ("All" + one button per group, only when groups exist)
+        │   ├── SkeletonList        (while GetProxies() is pending)
+        │   ├── EmptyState          (no proxies)
+        │   └── DndContext → SortableContext → ProxyCard[]
+        └── page === 'settings'
+            └── SettingsPage
 ```
 
-Additional components:
-- `StatusBadge` — animated dot indicator (offline / connecting / connected / error)
-- `FlagIcon` — country flag from flagcdn.com CDN
-- `ContextMenu` — right-click language selector
+Leaf components: `StatusBadge` (offline / connecting / connected / error dot), `FlagIcon` (flag from flagcdn.com).
+
+`ContextMenu.tsx` exists in `src/components/` but is **not mounted** anywhere (dead code).
 
 ## Page Routing
 
-Simple state-based routing in `AppContent`:
-- `page === 'proxies'` — main proxy list view
-- `page === 'settings'` — settings page
+State-based routing in `AppContent` (`page: 'proxies' | 'settings'`). No React Router.
+- The settings gear in `TitleBar` opens settings; the back arrow in `SettingsPage` returns.
+- Mouse back/forward buttons: a `mouseup` listener maps button 3 → proxies, button 4 → settings.
 
-No React Router. The settings gear icon in `TitleBar` toggles the page. Mouse back/forward buttons (browser navigation) are handled with `popstate` events for in-app navigation.
+## ProxyCard
+
+- Header: drag handle, status badge, editable **name** (`SetProxyName`; falls back to `host:port`), protocol badge (`S5` / `HTTP`), group tag, delete button (no confirmation).
+- Exit IP with copy-to-clipboard, country flag, latency, city/region/country, ISP.
+- Controls: Connect / Stop, Rotate, Speed Test (`BenchmarkProxy`).
+- Uptime: `formatUptime(totalUptime, connectedAt)` is computed **on render only** — there is no timer, so the value refreshes when a `proxy-updated` event arrives (connect, rotate, health check).
+- Expandable details: host, protocol, session, editable group (`SetProxyGroup`), editable name, speed test results, connected-at, total uptime, timezone, org, AS, last check.
+
+The proxy objects the UI receives never contain the password (the backend blanks it in every copy it sends).
+
+## Settings Page Sections
+
+1. **Language** — grid of 16 languages with flags.
+2. **Auto Rotation** — presets (1, 3, 5, 10 min) and a custom minutes input.
+3. **Export / Import** — export copies `ExportProxies()` (plaintext `host:port:user:pass`) to a textarea and the clipboard; import accepts `host:port[:user:pass]`, URIs (`socks5://user:pass@host:port`, `http://…`) and CSV (`host,port[,user,pass[,protocol]]`) via `AddProxiesMultiFormat`.
+4. **Security** — Kill Switch toggle (`SetKillSwitch`, triggers a UAC prompt) and Auto Failover toggle (`SetAutoFailover`). See `docs/security.md` for the kill switch's risks.
+5. **Tools** — DNS leak test (`CheckDNSLeak`), bulk checker (`BulkCheckProxies`, per-proxy alive / latency / country / anonymity), Connect Fastest (`ConnectFastest`), UWP loopback exemption (`EnableUWPSupport`, UAC prompt).
+6. **MCP Integration** — one card per client (Claude Desktop, Codex, Cursor, Windsurf) with detected/installed state, install/uninstall (`InstallMCPClient` / `UninstallMCPClient`) and a health check (`CheckMCPHealth`). Disabled when the client is not detected or `proxy0x-mcp.exe` is missing.
+7. **About** — logo, version, GitHub and bug-report links.
 
 ## Wails Bindings
 
-Auto-generated TypeScript bindings in `frontend/wailsjs/`:
-- `wailsjs/go/main/App` — all exported `App` methods (Connect, Disconnect, Rotate, etc.)
-- `wailsjs/go/models` — TypeScript classes for Go structs (`ProxyEntry`, `LogEntry`, `MCPStatus`, etc.)
-- `wailsjs/runtime/runtime` — Wails runtime functions (`EventsOn`, `EventsEmit`, etc.)
+Auto-generated TypeScript in `frontend/wailsjs/` (regenerated by `wails dev` / `wails build`):
+- `wailsjs/go/main/App` — exported `App` methods
+- `wailsjs/go/models` — TypeScript classes for Go structs (`ProxyEntry`, `BulkCheckResult`, `DNSLeakResult`, `MCPStatus`, …)
+- `wailsjs/runtime/runtime` — `EventsOn`, etc.
 
-Wails events used:
-- `proxy-updated` — single proxy state changed
-- `proxies-changed` — proxy list changed (add/remove/batch)
-- `proxy-dropped` — health check detected a dropped proxy
-- `log-entry` — new connection log entry
-- `language-changed` — language selection changed
-- `theme-changed` — theme toggled
-- `config-changed` — settings changed
+### Events
+
+| Event | Listener |
+|-------|----------|
+| `proxy-updated` | `App.tsx` — replaces the proxy in the list |
+| `proxies-changed` | `App.tsx` — refetches proxies and groups |
+| `proxy-dropped` | `App.tsx` — Windows notification |
+| `language-changed` | `LanguageContext` |
+| `theme-changed` | `TitleBar` |
+| `store-error` | **none yet** (emitted when `proxies.json` cannot be loaded/saved) |
+| `log-entry`, `config-changed`, `bulk-check-progress` | **none** (emitted by the backend, not consumed) |
 
 ## i18n System
 
-### Translations (`src/i18n/translations.ts`)
-
-- `languages` array — 16 supported languages with code, display name, and flag country code
-- `Translations` interface — all translatable string keys
-- `translations` record — keyed by language code, each entry implements the full interface
-- Exported as default for consumption by `LanguageContext`
-
-### LanguageContext (`src/i18n/LanguageContext.tsx`)
-
-React context providing:
-- `lang` — current language code
-- `t` — current translation object (typed as `Translations`)
-- `setLang(code)` — switch language and persist to Go backend
-
-Language is persisted via `SetLanguage()` Wails binding and loaded on mount via `GetLanguage()`.
-
-### Supported Languages
-
-EN, PT-BR, PT-PT, ES, FR, DE, IT, RU, JA, KO, ZH-CN, AR, HI, TR, TH, PL
+- `src/i18n/translations.ts` — `languages` (16 entries with code, name, flag), the `Translations` interface and one full object per language. TypeScript enforces that every language defines every key.
+- `src/i18n/LanguageContext.tsx` — `lang`, `t`, `setLang(code)`; persisted through `GetLanguage()` / `SetLanguage()`.
+- Languages: EN, PT-BR, PT-PT, ES, FR, DE, IT, RU, JA, KO, ZH-CN, AR, HI, TR, TH, PL.
 
 ## Design Tokens
 
-All colors use CSS custom properties defined in `src/index.css`, mapped to Tailwind via `tailwind.config.js`.
+CSS custom properties in `src/index.css` (`:root` = dark, `[data-theme="light"]` = light), mapped in `tailwind.config.js`.
 
-### Surfaces (layered depth)
-
-| Token | Dark | Light | Usage |
-|-------|------|-------|-------|
-| `surface-0` | `#191919` | `#f5f5f5` | App background |
-| `surface-1` | `#202020` | `#eeeeee` | Cards, sections |
-| `surface-2` | `#252525` | `#e5e5e5` | Inputs, secondary buttons |
-| `surface-3` | `#2f2f2f` | `#d9d9d9` | Hover states |
-| `surface-4` | `#373737` | `#cccccc` | Elevated buttons |
-| `surface-5` | `#434343` | `#b0b0b0` | Active/selected presets |
-| `surface-6` | `#505050` | `#999999` | Protocol badges |
-
-### Text
-
-| Token | Dark | Usage |
+| Token | Dark | Light |
 |-------|------|-------|
-| `text-primary` | `#f5f5f5` | Headings, values |
-| `text-secondary` | `#a0a0a0` | Labels, descriptions |
-| `text-tertiary` | `#6b6b6b` | Hints, timestamps |
+| `surface-0` … `surface-6` | `#191919` `#202020` `#252525` `#2f2f2f` `#373737` `#434343` `#505050` | `#f5f5f5` `#eeeeee` `#e5e5e5` `#d9d9d9` `#cccccc` `#b0b0b0` `#999999` |
+| `text-primary` / `secondary` / `tertiary` | `#ebebeb` / `#999999` / `#6b6b6b` | `#1a1a1a` / `#444444` / `#666666` |
+| `border-subtle` / `default` / `strong` | white at 6% / 9% / 14% | black at 8% / 13% / 20% |
+| `btn-accent` (bg / text / hover) | `#ebebeb` / `#191919` / `#d4d4d4` | `#1a1a1a` / `#f5f5f5` / `#333333` |
 
-### Borders
+Fixed colors (Tailwind config): accent `#7CDD4F` (dark `#5BBF35`), status online `#7CDD4F`, offline `#6b6b6b`, connecting `#d4a024`, error `#cc4444`.
 
-| Token | Dark | Usage |
-|-------|------|-------|
-| `border-subtle` | `#ffffff08` | Card inner borders |
-| `border-default` | `#ffffff12` | Standard borders |
-| `border-strong` | `#ffffff20` | Active/focus borders |
-
-### Accent
-
-- Primary: `#7CDD4F` (green)
-- Dark: `#5BBF35`
-- Muted: `#7CDD4F40`
-- Subtle: `#7CDD4F20`
-
-### Status Colors
-
-- Online: `#7CDD4F`
-- Offline: `#6b6b6b`
-- Connecting: `#d4a024`
-- Error: `#cc4444`
-
-## Typography
-
-- UI font: Inter (Google Fonts fallback: system UI stack)
-- Monospace: SF Mono / Cascadia Code / Consolas
+Typography: `Inter` (loaded from Google Fonts) with a system fallback stack (`-apple-system`, `Segoe UI`, …).
 
 ## Drag and Drop
 
-Uses `@dnd-kit/core` and `@dnd-kit/sortable`:
-- `DndContext` with `closestCenter` collision detection
-- `PointerSensor` with 5px activation distance (prevents accidental drags)
-- On drag end, `arrayMove` reorders the local array, then `ReorderProxies(ids)` persists to Go
-- Each `ProxyCard` is wrapped in a `useSortable` hook
+`@dnd-kit/core` + `@dnd-kit/sortable`: `closestCenter`, `PointerSensor` with a 5px activation distance; on drag end `arrayMove` reorders locally and `ReorderProxies(ids)` persists.
 
-## Features
+## Frameless Window
 
-### Frameless Window
-- Custom title bar with drag region (`--wails-draggable`)
-- Minimize, maximize toggle, close (to tray) buttons
-- Transparent window background (Wails config: `StartHidden: false`, `Frameless: true`)
+Custom title bar (drag region), minimize, maximize toggle and close (hides to tray).
 
-### Mouse Navigation
-- `mouseup` event handler on `App.tsx` for mouse back/forward buttons (button 3/4)
-- Navigates between proxy list and settings page
+## Known gaps
 
-### Loading Skeletons
-- Shown while `GetProxies()` is pending on mount
-- Animated placeholder cards matching the ProxyCard layout
-
-### Live Uptime Timer
-- Connected proxies show a ticking uptime counter
-- Updates every second via `setInterval` in `ProxyCard`
-- Combines persisted `TotalUptime` with live session duration
-
-### Settings Page Sections
-1. **Language** — grid of 16 language buttons with flags
-2. **Auto Rotation** — toggle + preset/custom interval picker
-3. **Import/Export** — export to clipboard, import from textarea
-4. **Claude MCP** — toggle to install/uninstall MCP config with health check
-5. **About** — logo, version, GitHub/bug report links
+- Most actions swallow errors (`catch {}` in `ProxyCard`, `SettingsPage`, `TitleBar`, `LanguageContext`); failures give no message. `ProxyForm` is the exception (shows the error).
+- `store-error` is not consumed: when the store is read-only, mutations fail silently in the UI. `RemoveProxy` / `ReorderProxies` can now reject and the callers do not handle it.
+- Group filter: if the active group disappears and no groups remain, the filter bar hides while the list stays filtered (empty).
+- Delete has no confirmation.
+- Some strings are hardcoded in English ("All", the drop notification, some `aria-label`s); window control buttons lack accessible labels.
+- Remote resources (Google Fonts, flagcdn.com) are loaded at startup and there is no Content-Security-Policy.
+- External links use `target="_blank"` instead of the Wails `BrowserOpenURL` runtime call.

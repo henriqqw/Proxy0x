@@ -6,10 +6,13 @@ Proxy credentials (username and password) are encrypted at rest using **AES-256-
 
 ### Key management
 
-- A 32-byte random key is generated on first use and stored at `%AppData%/Proxy0x/.key`
-- The key file has `0600` permissions (owner read/write only)
-- One key per machine — shared between the Wails app and the MCP server
-- Implementation: `internal/crypto/crypto.go` (Wails app), `pkg/proxycore/store.go` (MCP server)
+- A 32-byte random AES key is generated on first use and stored at `%AppData%/Proxy0x/.key`, protected with **Windows DPAPI** (`CryptProtectData`, current-user scope, `CRYPTPROTECT_UI_FORBIDDEN`). File format: `dpapi:` + base64(DPAPI blob).
+- **Migration:** a legacy raw 32-byte key file is copied to `.key.legacy` and rewritten in the `dpapi:` format. If DPAPI fails during migration, the raw file is kept and used.
+- **Unreadable DPAPI key** (e.g. profile moved to another machine/user): loading fails with an error that points to `.key.legacy`; the key is not regenerated, so the store goes read-only instead of losing credentials.
+- If DPAPI is unavailable when a new key is created, the key is written raw (fallback).
+- A `.key` file that is neither `dpapi:` nor 32 raw bytes (corrupted) is an error and is never replaced; restore it from `.key.legacy`.
+- One implementation for both processes: the MCP server's store (`pkg/proxycore/store.go`) delegates to `internal/crypto`, so it reads the DPAPI key and never creates or rewrites `.key`. (Before this, the MCP copy only understood raw keys and would overwrite the DPAPI key, making every saved credential unreadable.)
+- File permissions (`0600`) have no real effect on NTFS; protection comes from DPAPI.
 
 ### Encryption format
 
@@ -114,12 +117,40 @@ Tracked TCP connections are force-closed for instant disconnect.
 
 The local proxy server tracks every TCP connection it handles — the client side and the upstream side, for both CONNECT tunnels and plain HTTP requests — via `trackConn`/`untrackConn`. `Stop()` closes every tracked connection before waiting for its goroutines, so it returns in under a second regardless of in-flight traffic.
 
+## Kill switch (`internal/killswitch`)
+
+Toggled in Settings → Security. Enabling runs an elevated script (UAC prompt) that adds three Windows Firewall rules:
+
+| Rule | Effect |
+|------|--------|
+| `Proxy0x-KillSwitch-Block` | block all outbound traffic |
+| `Proxy0x-KillSwitch-AllowApp` | allow outbound for the Proxy0x executable |
+| `Proxy0x-KillSwitch-AllowLocal` | allow outbound to `127.0.0.1` / `::1` |
+
+Disabling deletes the three rules (another UAC prompt). On app shutdown, if the kill switch is on, the app disables it (UAC prompt at quit) and stores `killSwitch=false`; it is not re-enabled on the next start.
+
+Known risks (not verified on a real machine yet):
+- **Rule precedence (unverified):** in Windows Defender Firewall, block rules take precedence over allow rules. If that applies here, the allow-app rule does not exempt Proxy0x and enabling the kill switch cuts *all* internet access, including the proxy itself.
+- **Rules persist:** if the app is killed, crashes or is uninstalled while the kill switch is on, the firewall rules stay and outbound traffic stays blocked until they are removed (Disable in the app, or `netsh advfirewall firewall delete rule name=Proxy0x-KillSwitch-Block`). The uninstaller runs without elevation and does not remove them.
+- **Elevated script handling:** the script is written to a fixed path (`%TEMP%\proxy0x-fw.bat`) and executed elevated via `ShellExecute("runas")`. `ShellExecute` returns before the script runs and the file is deleted right away, so the script may be gone before `cmd.exe` reads it (the toggle can silently do nothing), and another process running as the user could replace the file between write and elevated execution.
+
+`EnableUWPSupport` uses the same elevated-script mechanism to add `CheckNetIsolation LoopbackExempt` entries for Edge, Windows Search, Microsoft Store and Paint, so those UWP apps may use the local proxy on `127.0.0.1`.
+
+## DNS leak test
+
+`CheckDNSLeak` compares the exit IP seen through the active proxy with the user's direct public IP (both from `api.ipify.org`). Equal IPs → `leaked: true`; no active proxy → `leaked: true`; if either lookup fails → `leaked: false` (unknown). Despite the name it does not inspect DNS resolvers — it verifies that traffic actually leaves through the proxy.
+
+## MCP client configuration writes
+
+`mcp_integration.go` edits other applications' config files to register the MCP server: Claude Desktop (`%AppData%\Claude\claude_desktop_config.json`), Codex (`~\.codex\config.json`), Cursor (`~\.cursor\mcp.json`), Windsurf (`~\.codeium\windsurf\mcp_config.json`). An unparseable file is never overwritten; the previous version is saved as `<file>.proxy0x.bak` and writes are atomic. Hypothesis: Codex reads TOML (`~\.codex\config.toml`), so the Codex entry may have no effect.
+
 ## Implementation locations
 
 | Component | File |
 |-----------|------|
-| AES-GCM encryption (Wails) | `internal/crypto/crypto.go` |
-| AES-GCM encryption (MCP) | `pkg/proxycore/store.go` |
+| AES-GCM + DPAPI key (app and MCP) | `internal/crypto/crypto.go` (used by `pkg/proxycore/store.go`) |
+| Kill switch / UWP elevation | `internal/killswitch/killswitch.go` |
+| MCP client config writes | `mcp_integration.go` |
 | SSRF validation | `pkg/proxycore/ssrf.go` |
 | SSRF tests | `pkg/proxycore/ssrf_test.go` |
 | Redirect validation | `pkg/proxycore/fetcher.go` |

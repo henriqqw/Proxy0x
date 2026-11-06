@@ -1,205 +1,138 @@
 # Backend
 
-Go backend for the Proxy0x desktop app. All exported methods on the `App` struct are exposed to the frontend via Wails bindings.
+Go backend of the Proxy0x desktop app. Exported `App` methods are Wails bindings (full list with signatures and events: `docs/api.md`).
 
-## App Struct
+## Packages
+
+| Package | Responsibility |
+|---------|----------------|
+| `main` (`app.go`, `tray.go`, `mcp_integration.go`, `main.go`) | `App` state, Wails bindings, lifecycle, tray, MCP client config |
+| `internal/proxy` | `LocalServer` (local HTTP/CONNECT proxy) and `SystemProxy` (WinINET registry with backup/restore) |
+| `internal/crypto` | AES-256-GCM credential encryption, key protected with DPAPI. Shared with the MCP server. |
+| `internal/config` | `config.json` and data-file paths |
+| `internal/fsutil` | `WriteFileAtomic` (temp file + rename, keeps `.bak`) |
+| `internal/killswitch` | Windows Firewall rules through an elevated script |
+| `internal/mcpserver`, `pkg/proxycore`, `cmd/proxy0x-mcp` | MCP server (see `docs/mcp.md`) |
+
+## App struct
 
 ```go
 type App struct {
     ctx        context.Context
-    proxies    map[string]*ProxyEntry
-    clients    map[string]*http.Client
+    proxies    map[string]*ProxyEntry  // keyed by random hex ID; guarded by mu
+    clients    map[string]*http.Client // keyed by "id:sessionId"; guarded by clientsMu
+    clientsMu  sync.Mutex
     mu         sync.RWMutex
-    lpMu       sync.Mutex
-    localProxy *proxy.LocalServer
-    stopCh     chan struct{}
-    logs       []LogEntry
+    lpMu       sync.Mutex              // guards localProxy
+    localProxy *proxy.LocalServer      // the single local server
+    stopCh     chan struct{}           // stops background loops
+    logs       []LogEntry              // ring buffer, 200 entries
     logMu      sync.RWMutex
     crypt      *crypto.Store
+    storeErr   error                   // non-nil: proxies.json unreadable → read-only
+
+    // injected at the I/O boundaries (tests replace them)
+    dataFile       string
+    emit           func(ctx context.Context, name string, data ...interface{})
+    sysproxy       systemProxy // Set(port) / Clear() / Recover()
+    newLocalServer func(proxy.UpstreamConfig) (*proxy.LocalServer, error)
 }
 ```
 
-- `proxies` — in-memory proxy pool keyed by random hex ID
-- `clients` — HTTP clients keyed by `id:sessionId`, one per proxy+session pair
-- `localProxy` — the single active local proxy server instance
-- `stopCh` — signals background goroutines to stop on shutdown
-- `crypt` — AES-GCM credential encryption via `internal/crypto`
+Rules the code follows:
+
+- Network calls never run while holding `mu`.
+- Bindings and events get copies (`view`/`snapshot`) with the password blanked.
+- Events go through `a.emitEvent` (never `runtime.EventsEmit` directly) so the code runs outside Wails in tests.
+- Exit-IP checks go through `verifyExitIP` (HTTP 200 + valid IP).
 
 ## Lifecycle
 
 ### `startup(ctx)`
-1. Stores the Wails context
-2. Clears any leftover Windows system proxy settings
-3. Loads proxies from `%APPDATA%/Proxy0x/proxies.json` (decrypts credentials)
-4. Launches system tray in a goroutine
-5. Launches health-check loop in a goroutine
-6. Launches auto-rotation loop in a goroutine
+1. Store the Wails context.
+2. `sysproxy.Recover()`: undo a system proxy Proxy0x left behind after a crash, restoring the user's previous values.
+3. Load `proxies.json`; on invalid JSON or undecryptable credentials the store becomes read-only and `store-error` is emitted.
+4. Start the tray, the health-check loop and the auto-rotation loop.
 
 ### `shutdown(ctx)`
-1. Stops the local proxy server if running
-2. Clears Windows system proxy
-3. Closes `stopCh` to signal background goroutines
+1. If the kill switch is on: remove its firewall rules (UAC prompt) and save the flag as off.
+2. Stop the local server and restore the user's system proxy.
+3. Close `stopCh`.
 
-## Proxy Management
+## Proxy management
 
-### CRUD
+- Formats: `host:port[:user:pass]`, optional `socks5://` / `http://` prefix (`AddProxy`, `AddProxiesBatch`); `AddProxiesMultiFormat` also accepts URIs with `user:pass@` and CSV (see `docs/api.md`).
+- IDs are 8 random bytes (hex); session IDs 6 random bytes (hex).
+- Groups are derived from the `group` field; no separate storage.
+- Every mutation checks that the store is writable, saves, and returns copies.
 
-| Method | Description |
-|--------|-------------|
-| `AddProxy(raw string)` | Parse `host:port[:user:pass]` format, assign random ID and session ID, persist |
-| `AddProxiesBatch(raw string)` | Parse multiple proxies (newline-separated), persist all at once |
-| `RemoveProxy(id)` | Disconnect first if active, delete from map, close its HTTP client, persist |
-| `GetProxies()` | Return all proxies sorted by `Order` field |
-| `ReorderProxies(ids)` | Update `Order` field for each proxy by array index |
-| `ExportProxies()` | Return all proxies as `host:port:user:pass` text |
-
-### Proxy Format Parsing
-
-Supported formats:
-- `host:port` — HTTP proxy without auth
-- `host:port:user:pass` — HTTP proxy with auth
-- `socks5://host:port` — SOCKS5 proxy without auth
-- `socks5://host:port:user:pass` — SOCKS5 with auth
-- `http://host:port` — explicit HTTP scheme
-
-### Groups
-
-Proxies can be tagged with a group name. Groups are derived dynamically from the proxy set (no separate storage).
-
-- `GetGroups()` — return sorted unique group names
-- `SetProxyGroup(id, group)` — assign a group to a proxy
-- `ConnectGroup(group)` / `DisconnectGroup(group)` — batch operations
-
-## Connection Flow
+## Connection flow
 
 ### `ConnectProxy(id)`
-
-1. Disconnect any currently active proxy
-2. Set status to `connecting`, create HTTP client with proxy transport (SOCKS5 dialer errors are returned, never replaced by a direct connection)
-3. Verify the exit IP via `https://api.ipify.org?format=json` (HTTP 200 + valid IP required)
-4. Fetch geolocation from `https://ipwho.is/{ip}`
-5. Start local proxy server and set Windows system proxy; if the server cannot start, the connect fails with `error`
-6. Set status to `connected`, record IP, latency, geo, `connectedAt` timestamp
+1. Disconnect the active proxy (only one can be active).
+2. `status=connecting`; build/reuse the HTTP client for `id:session` (SOCKS5 setup errors fail the dial, never fall back to direct).
+3. `verifyExitIP` → on failure `status=error`, IP/geo cleared.
+4. Geolocation from `ipwho.is`.
+5. `setLocalProxy`: start `LocalServer` and `sysproxy.Set(port)`; on failure `status=error`, nothing left running.
+6. `status=connected`, `active=true`, `connectedAt` recorded.
 
 ### `DisconnectProxy(id)`
-
-1. Accumulate uptime into `TotalUptime`
-2. Reset status to `offline`, clear IP/latency/geo
-3. Close the HTTP client transport
-4. Stop local proxy server if it was for this proxy
-5. Clear Windows system proxy
+Accumulate uptime, reset runtime fields, close the HTTP client, stop the local server if it serves this proxy, restore the system proxy.
 
 ### `RotateProxy(id)`
+Verify a candidate session through its own client; on success switch the session, close the old client and call `LocalServer.UpdateUpstream` (same port, open tunnels kept, registry untouched). On failure close the candidate client and keep the previous session/status.
 
-1. Generate a candidate session ID and an HTTP client for it
-2. Verify the exit IP through the candidate session, fetch geo
-3. On success: switch to the new session, close the old client and update the local server's upstream in place (`LocalServer.UpdateUpstream`): same port, open connections kept, registry untouched
-4. On failure: close the candidate client, keep the previous session and status, return the error
+Rotation appends `_session-{id}` to the username; residential providers map each session to a different exit IP.
 
-Session rotation works by appending `_session-{id}` to the proxy username. Each unique session ID gets a different exit IP from residential proxy pools.
+### Auto-failover (`tryFailover`)
+Called by `CheckHealth` when a connected proxy drops and `AutoFailover` is on: connects (asynchronously) the inactive proxy with the lowest known latency, or any proxy if none has a latency yet.
 
-## Local Proxy Server
+## Local proxy server (`internal/proxy/server.go`)
 
-Defined in `internal/proxy/server.go`. The `LocalServer` struct:
+- Listens on `127.0.0.1:0`.
+- CONNECT tunnels (HTTPS) and plain HTTP, upstream HTTP or SOCKS5.
+- Plain HTTP: one request per client connection, forwarded with `Connection: close`; the response is relayed marked `close`.
+- Upstream dial and handshake bounded by 15 s (`upstreamTimeout`).
+- Every client and upstream connection is tracked; `Stop()` closes them all and returns in under a second.
+- `UpdateUpstream(cfg)` switches new connections to a new upstream session.
+- Accept errors back off 5 ms → 1 s.
 
-- Binds to `127.0.0.1:0` (random available port)
-- Accepts incoming connections and routes them through the upstream proxy
-- Supports HTTP CONNECT tunneling (for HTTPS) and plain HTTP forwarding
-- Plain HTTP: one request per client connection. The request is forwarded with `Connection: close` and the client connection is closed after the response body, so browsers open a new connection for the next request (no keep-alive through the local proxy)
-- Supports SOCKS5 upstream via `golang.org/x/net/proxy`; upstream dials (HTTP and SOCKS5) time out after 15s
-- Tracks all client and upstream connections; `Stop()` closes them all and returns in under a second
-- Temporary `Accept` errors back off (5ms doubling up to 1s) instead of spinning
+## System proxy (`internal/proxy/system.go`)
 
-### System Proxy (`internal/proxy/system.go`)
+`SystemProxy` works through a `Registry` interface (real implementation: `golang.org/x/sys/windows/registry`, key `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`):
 
-Uses Windows registry to configure system-wide proxy:
-- `SystemProxy.Set(port)` — backs up the user's `ProxyEnable`/`ProxyServer`/`ProxyOverride` (first time only) to `sysproxy-backup.json`, then points `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings` at `127.0.0.1:<port>`
-- `SystemProxy.Clear()` — restores the backed-up values and deletes the backup
-- `SystemProxy.Recover()` — on startup, restores the backup only if the registry still holds the address Proxy0x set (see `docs/security.md`)
-- Registry access goes through a small `Registry` interface (real implementation: `golang.org/x/sys/windows/registry`) so the logic is testable
-- Calls `InternetSetOptionW` via `wininet.dll` to refresh proxy settings immediately
+- `Set(port)`: on first use saves `{previous: {enable, server, override}, ours: "127.0.0.1:<port>"}` to `sysproxy-backup.json`, then sets `ProxyEnable=1`, `ProxyServer=127.0.0.1:<port>`, `ProxyOverride=localhost;127.*;10.*;192.168.*;<local>`.
+- `Clear()`: restores `previous` exactly and deletes the backup. Without a backup it only disables an old-version leftover.
+- `Recover()` (startup): restores only if the registry still holds `ours`. If the user changed the settings since, the backup is discarded. Without a backup, only `127.0.0.1:*` with the exact bypass list above is disabled.
+- `InternetSetOptionW` refreshes WinINET after each change.
 
-Bypass list: `localhost;127.*;10.*;192.168.*;<local>`
+## Kill switch (`internal/killswitch`)
 
-## Health Check Loop
+`Enable()` writes a `.bat` to `%TEMP%\proxy0x-fw.bat` and runs it elevated (`ShellExecute runas`). The script adds three outbound rules: `Proxy0x-KillSwitch-Block` (block all), `-AllowApp` (allow Proxy0x.exe) and `-AllowLocal` (allow 127.0.0.1/::1). `Disable()` deletes them. See `docs/security.md` for the open issues with this approach.
 
-Runs every 30 seconds (polls). Actual checks happen at configurable intervals (default 180s).
+## Background loops
 
-1. Collect all active proxy IDs
-2. For each, call `CheckHealth(id)` — hit ipify to verify connectivity
-3. If a connected proxy becomes unreachable, emit `proxy-dropped` event (triggers Windows notification)
-4. 1.5s delay between checks to avoid bursting
-
-## Auto-Rotation Loop
-
-Runs every 10 seconds (polls). Actual rotations happen at configurable intervals (0 = disabled).
-
-1. If `AutoRotateInterval > 0` and enough time has passed since last rotation
-2. Rotate all active proxies
-3. Log the batch rotation
-
-## Speed Benchmark
-
-`BenchmarkProxy(id)` returns `map[string]interface{}`:
-
-1. **Connect latency** — time to reach `api.ipify.org` through the proxy (ms)
-2. **Download speed** — fetch 100KB from `speed.cloudflare.com/__down`, compute Mbps
-
-## Logging
-
-Ring buffer of 200 `LogEntry` structs (action, proxyID, host, detail, timestamp). Newest entries replace oldest. Emitted via Wails events for real-time UI updates.
+- **Health check**: ticks every 30 s; checks active proxies every `HealthCheckInterval` (default 180 s), 1.5 s apart.
+- **Auto-rotation**: ticks every 10 s; rotates active proxies every `AutoRotateInterval` seconds (0 = off).
 
 ## Persistence
 
-Proxies stored at `%APPDATA%/Proxy0x/proxies.json`:
-- On save: credentials encrypted with AES-GCM, status/active/IP fields stripped
-- On load: credentials decrypted, status reset to `offline`, active reset to `false`
+- `proxies.json`: credentials encrypted on save, runtime fields (`status`, `active`, `currentIp`, `latency`) stripped. Written atomically with `.bak`. Encryption failure aborts the save (never writes plaintext).
+- `config.json`: written atomically.
+- Shapes and key format: `docs/data.md`.
 
-## Configuration
+## MCP client integration (`mcp_integration.go`)
 
-`internal/config/config.go` — JSON file at `%APPDATA%/Proxy0x/config.json`:
+Supports Claude Desktop, Codex, Cursor and Windsurf (paths in `docs/api.md`). Writes only `mcpServers.proxy0x`, refuses to touch an unparseable file, backs it up as `<file>.proxy0x.bak` and writes atomically. `CheckMCPHealth` starts `proxy0x-mcp.exe` without a console window and waits up to 5 s for the `initialize` result.
 
-```go
-type Config struct {
-    Language            string
-    Theme               string
-    AutoRotateInterval  int    // seconds, 0 = disabled
-    HealthCheckInterval int    // seconds, minimum 60, default 180
-}
-```
+## System tray (`tray.go`)
 
-## Encryption
+Show · Disconnect (active proxy) · Rotate (active proxy) · Language submenu (16 languages) · Quit.
 
-`internal/crypto/crypto.go` — AES-256-GCM with:
-- 256-bit key stored at `%APPDATA%/Proxy0x/.key` (auto-generated on first use)
-- Encrypted values prefixed with `enc:` followed by base64(nonce + ciphertext)
-- Empty strings pass through unencrypted
-- Non-prefixed strings treated as plaintext (backward compatibility)
-
-## MCP Integration
-
-`mcp_integration.go` — methods for Claude Desktop config management:
-
-| Method | Description |
-|--------|-------------|
-| `GetMCPStatus()` | Check if MCP binary exists and if proxy0x is in Claude's config |
-| `InstallMCPConfig()` | Write proxy0x entry to `%APPDATA%/Claude/claude_desktop_config.json` |
-| `UninstallMCPConfig()` | Remove proxy0x entry from Claude's config |
-| `CheckMCPHealth()` | Spawn MCP binary, send JSON-RPC `initialize` request, verify response |
-
-## System Tray
-
-`tray.go` — uses `energye/systray`:
-- Custom icon from `build/windows/tray.ico`
-- Show
-- Disconnect / Rotate (act on the single active proxy; there is no "Connect All" because only one proxy can be active)
-- Language submenu (16 languages, text labels)
-- Quit
-
-## External Services
+## External services
 
 | Service | Purpose | Used by |
 |---------|---------|---------|
-| `api.ipify.org` | Get exit IP through proxy | Connect, Rotate, Health Check, Benchmark |
-| `ipwho.is` | IP geolocation (country, city, ISP, ASN, timezone) | Connect, Rotate |
-| `speed.cloudflare.com` | Download speed measurement (100KB file) | Benchmark |
+| `api.ipify.org` | Exit IP (through proxy) and direct IP | Connect, rotate, health, benchmark, bulk check, connect fastest, DNS leak, `GetMyIP` |
+| `ipwho.is` | Geolocation | Connect, rotate, health (on IP change), bulk check |
+| `speed.cloudflare.com` | 100 KB download | Benchmark |

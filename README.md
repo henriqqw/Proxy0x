@@ -15,7 +15,7 @@
   · <a href="https://github.com/henriqqw/Proxy0x/issues">Report issue</a>
 </p>
 
-Windows desktop proxy manager. Route all browser traffic through HTTP or SOCKS5 proxies via a local proxy server, rotate IPs by session, run speed tests, organize proxies by group, and monitor latency and geolocation in real time. Kill switch blocks all traffic if a proxy drops. Auto-failover connects to the next fastest proxy automatically. DPAPI-protected credential encryption. DNS leak test, bulk proxy checker, UWP/Store app support, and multi-format import. Includes an **MCP server** for AI agent integration with Claude Desktop, Cursor, Codex and Windsurf. 16 languages, frameless dark UI with system tray. Built with **Go**, **Wails** and **React**.
+Windows desktop proxy manager. Routes the traffic of applications that use the Windows system proxy (browsers included) through HTTP or SOCKS5 proxies via a local proxy server, rotates IPs by session, runs speed tests, organizes proxies by group and monitors latency and geolocation. Optional kill switch, auto-failover, DPAPI-protected credential encryption, exit-IP check, bulk proxy checker, UWP/Store app support and multi-format import. Includes a read-only **MCP server** for AI agents (Claude Desktop, Cursor, Codex, Windsurf). 16 languages, frameless dark UI with system tray. Built with **Go**, **Wails** and **React**.
 
 ## Screenshots
 
@@ -30,138 +30,135 @@ Windows desktop proxy manager. Route all browser traffic through HTTP or SOCKS5 
 
 | File | Description |
 |------|-------------|
-| `Proxy0x-Setup-1.0.0.exe` | Windows installer — language selector, install location, startup option |
-| `Proxy0x.exe` | Standalone portable executable |
+| `Proxy0x-Setup-<version>.exe` | Windows installer (recommended) — includes the app and the MCP server |
+| `Proxy0x.exe` | Portable desktop app |
+| `proxy0x-mcp.exe` | MCP server binary (place it next to `Proxy0x.exe` for the one-click MCP setup) |
 
-Download from the [latest release](https://github.com/henriqqw/Proxy0x/releases/latest).
+Download from the [latest release](https://github.com/henriqqw/Proxy0x/releases/latest). Windows x64 only.
 
 ### Installer features
 
 - 14 language options for the installer UI
-- Custom install location
-- Desktop shortcut (optional)
-- Start on Windows boot (optional)
-- Full uninstaller via Add/Remove Programs
+- Per-user install by default (no admin needed), custom install location
+- Installs `Proxy0x.exe` and `proxy0x-mcp.exe`
+- Desktop shortcut (optional), start with Windows (optional)
+- Uninstaller via Add/Remove Programs; it asks whether to also delete saved proxies and settings (`AppData\Roaming\Proxy0x`)
 
 ## Features
 
 | Area | Details |
 |------|---------|
-| Protocols | HTTP and SOCKS5 proxy support |
-| System proxy | Local proxy server routes all browser traffic through the selected proxy |
-| Proxy management | Add single, batch import, multi-format import (URI, CSV, `host:port:user:pass`), drag-to-reorder, remove, import/export JSON |
-| Proxy naming | User-defined labels for proxies — clickable name in card header and expanded details |
-| Proxy groups | Tag proxies with groups, filter by group |
-| Connection | Connect, disconnect (instant), rotate IP via session ID |
-| Connect fastest | Auto-connect to the lowest-latency proxy in the pool |
-| Auto rotation | Configurable interval with presets (1m, 3m, 5m, 10m) or custom minutes |
-| Auto-failover | On proxy drop, automatically connect to the next best proxy by latency |
-| Kill switch | Block all outbound traffic if proxy drops (Windows Firewall rules with UAC elevation) |
-| DNS leak test | Compare proxy IP vs direct IP to detect DNS leaks |
-| Bulk checker | Test all proxies concurrently for latency, country, and anonymity level |
-| UWP support | Enable proxy for Microsoft Edge and Store apps (loopback exemption) |
-| Speed test | Measure connect latency (ms) and download speed (Mbps) per proxy |
-| Monitoring | Current IP, latency, live uptime timer, connection status badge, copy IP to clipboard |
+| Protocols | HTTP and SOCKS5 upstream proxies |
+| System proxy | Local proxy server on `127.0.0.1`; the Windows (WinINET) system proxy points at it. Your previous proxy settings are backed up and restored on disconnect, and recovered after a crash |
+| Proxy management | Add single, batch import, multi-format import (URI, CSV, `host:port:user:pass`), drag-to-reorder, remove, export as `host:port:user:pass` text |
+| Proxy naming | User-defined labels shown on the card |
+| Proxy groups | Tag proxies with a group, filter by group |
+| Connection | One active proxy at a time. Connect, instant disconnect, rotate IP via session ID (rotation keeps the local port and open connections) |
+| Connect fastest | Tests every inactive proxy and connects the lowest-latency one |
+| Auto rotation | Presets (1, 3, 5, 10 min) or a custom interval in minutes |
+| Auto-failover | When the active proxy fails a health check, connects the inactive proxy with the lowest last-known latency |
+| Kill switch | While enabled, Windows Firewall rules block outbound traffic except Proxy0x itself and loopback (requires UAC). Disabled on app exit. See [Known limitations](#known-limitations) |
+| Exit IP check ("DNS leak test") | Compares the exit IP through the proxy with your direct IP |
+| Bulk checker | Tests all proxies concurrently (10 at a time): latency, exit IP, country, transparent/elite |
+| UWP support | Loopback exemption so Edge/Store apps can reach the local proxy (requires UAC) |
+| Speed test | Connect latency (ms) and download speed (Mbps, 100 KB sample) |
+| Monitoring | Exit IP (copy to clipboard), latency, status badge, connected-at time, total uptime |
 | Geolocation | Country flag, city, region, ISP, timezone, AS number, organization |
-| Health check | Automatic health checks every 3 minutes, Windows notification on proxy drop |
-| Connection stats | Connected-at time, total uptime per proxy (persisted across sessions) |
-| Encryption | AES-GCM credential encryption with DPAPI-protected key (tied to Windows user profile) |
-| Persistence | Proxies saved to `%APPDATA%/Proxy0x/proxies.json`, auto-restored on startup |
-| MCP server | AI agent integration — 9 tools, 3 resources, 2 prompts, SSRF protection |
-| MCP clients | One-click setup for Claude Desktop, Cursor, Codex and Windsurf |
+| Health check | Every 3 minutes for the active proxy; Windows notification when it drops; status recovers when it answers again |
+| Exit IP verification | Connect, rotate, health check and speed test only succeed with HTTP 200 and a valid IP |
+| Encryption | Credentials encrypted with AES-256-GCM; the key is protected with Windows DPAPI (tied to your Windows user) and shared by the app and the MCP server |
+| Persistence | `%APPDATA%/Proxy0x/proxies.json`, written atomically (previous version kept as `.bak`). If the file can't be read, the store becomes read-only instead of being overwritten |
+| MCP server | Read-only access for AI agents — 9 tools, 3 resources, 2 prompts, SSRF protection |
+| MCP clients | One-click setup for Claude Desktop, Cursor, Codex and Windsurf (backs up the client's config, never overwrites an unparseable one) |
 | i18n | 16 languages — EN, PT-BR, PT-PT, ES, FR, DE, IT, RU, JA, KO, ZH-CN, AR, HI, TR, TH, PL |
-| System tray | Minimize to tray, language submenu, connect/disconnect/rotate all, quit |
+| System tray | Show, Disconnect / Rotate the active proxy, language submenu, Quit |
 | Interface | Frameless window, drag-to-reorder, loading skeletons, mouse back/forward navigation |
 
 ## Proxy formats
 
 ```
+host:port                              # No auth
 host:port:user:pass                    # Standard format
-socks5://user:pass@host:port           # URI format (http://, socks5://)
-host,port,user,pass,socks5             # CSV format
+socks5://host:port:user:pass           # Explicit protocol (http:// also accepted)
+socks5://user:pass@host:port           # URI format (multi-format import)
+host,port,user,pass,socks5             # CSV format (multi-format import)
 ```
 
-All three formats are supported in the multi-format import (Settings → Import). Residential proxies with geographic targeting (DataImpulse, etc.) are supported. IP rotation works by appending `_session-{id}` to the username — each unique session ID gets a different IP from the pool.
+The single-proxy field and batch import accept the first three forms; **Settings → Import** also accepts URI and CSV lines. Residential proxies with geographic targeting (DataImpulse, etc.) are supported: IP rotation appends `_session-{id}` to the username, and each session ID maps to a different IP from the provider's pool.
 
 ## Usage
 
-1. Paste a proxy in `host:port:user:pass`, URI (`socks5://user:pass@host:port`), or CSV format — or use **Batch Import** for multiple at once.
-2. Click **Connect** — the app starts a local proxy server and routes your browser traffic through it. Or use **Connect Fastest** in Settings → Tools to auto-connect to the lowest-latency proxy.
-3. See the proxy's real IP, country flag, city, ISP and latency. Click the IP to copy it to clipboard.
-4. Give proxies custom **names** by clicking the name field in the card header or expanded details.
-5. Use **Rotate** to get a new IP, or enable **Auto Rotation** in settings with a preset or custom interval.
-6. Enable **Kill Switch** in Settings → Security to block all traffic if the proxy drops.
-7. Enable **Auto-Failover** to automatically connect to the next best proxy on drop.
-8. Run **DNS Leak Test** or **Bulk Proxy Check** in Settings → Tools to verify security and performance.
-9. Enable **UWP Support** for Microsoft Edge and Store apps.
-10. Run **Speed Test** to measure connect latency and download speed.
-11. Assign proxies to **groups** for filtering (click the group label in the expanded card).
-12. Change language via the globe button in the title bar.
-13. Close the window — the app minimizes to system tray. Click the tray icon to restore; use **Quit** to exit.
+1. Paste a proxy (`host:port:user:pass`) or use **Batch Import** for many at once.
+2. Click **Connect** — the app verifies the exit IP, starts the local proxy server and points the Windows system proxy at it. Or use **Connect Fastest** in Settings → Tools.
+3. See the exit IP, country flag, city, ISP and latency. Click the IP to copy it.
+4. Name a proxy by clicking its name on the card; assign a **group** in the expanded card.
+5. Use **Rotate** for a new IP, or enable **Auto Rotation** in Settings.
+6. Optional: enable **Kill Switch** and **Auto-Failover** in Settings → Security.
+7. Run the **exit IP check**, **Bulk Check** or **Speed Test** in Settings → Tools.
+8. Enable **UWP Support** if Edge/Store apps should use the proxy.
+9. Close the window — the app keeps running in the system tray. Use **Quit** in the tray to exit (this restores your previous system proxy settings).
 
 ## MCP Integration
 
-Proxy0x includes an MCP (Model Context Protocol) server that lets AI agents use your proxy pool. The MCP server runs as a separate binary (`proxy0x-mcp.exe`) communicating via stdio.
+Proxy0x ships an MCP (Model Context Protocol) server, `proxy0x-mcp.exe`, that lets AI agents fetch URLs through your proxies. It runs as a separate process over stdio and **only reads** `proxies.json`: proxies are added and removed in the desktop app.
 
 ### One-click setup
 
-Open **Settings** in the app and toggle any MCP client — **Claude Desktop**, **Codex**, **Cursor** or **Windsurf**. This writes the config automatically and runs a health check to verify it works. Restart the client after connecting.
+Open **Settings** and toggle an MCP client — **Claude Desktop**, **Codex**, **Cursor** or **Windsurf**. Proxy0x adds a `proxy0x` entry to the client's config (keeping a `.proxy0x.bak` backup and refusing to touch a config it can't parse), then runs a health check. Restart the client afterwards. Requires `proxy0x-mcp.exe` next to `Proxy0x.exe` (the installer does this).
 
 ### Manual setup
 
-1. Build the MCP server:
-   ```bash
-   go build -o proxy0x-mcp.exe ./cmd/proxy0x-mcp/
-   ```
+Add to `%APPDATA%/Claude/claude_desktop_config.json` (see `cmd/proxy0x-mcp/mcp-config.example.json`):
 
-2. Add to `%APPDATA%/Claude/claude_desktop_config.json`:
-   ```json
-   {
-     "mcpServers": {
-       "proxy0x": {
-         "command": "C:\\path\\to\\proxy0x-mcp.exe",
-         "args": []
-       }
-     }
-   }
-   ```
+```json
+{
+  "mcpServers": {
+    "proxy0x": {
+      "command": "C:\\Path\\To\\Proxy0x\\proxy0x-mcp.exe",
+      "args": []
+    }
+  }
+}
+```
 
-3. Restart Claude Desktop.
+Then restart Claude Desktop.
 
 ### Available tools
 
 | Tool | Description |
 |------|-------------|
-| `proxy_fetch` | Fetch a URL through the best proxy (SSRF-protected) |
-| `proxy_list` | List all proxies (credentials stripped) |
-| `proxy_status` | Pool stats overview |
-| `proxy_connect` | Connect a proxy by ID |
+| `proxy_fetch` | Fetch a URL through the active proxy, or a given `proxy_id` (SSRF-protected, body capped at 100 KB) |
+| `proxy_list` | List proxies (credentials stripped) |
+| `proxy_status` | Pool stats |
+| `proxy_connect` | Connect a proxy by ID (MCP server's own in-memory state) |
 | `proxy_disconnect` | Disconnect a proxy |
-| `proxy_rotate` | Rotate session for a new IP |
-| `proxy_add` | Add a proxy (`host:port[:user:pass]`) |
-| `proxy_remove` | Remove a proxy by ID |
-| `proxy_health` | Health check all active proxies |
+| `proxy_rotate` | New session ID for a new IP |
+| `proxy_health` | Health check of active proxies |
+| `proxy_add` / `proxy_remove` | Not available: the server is read-only and returns an error pointing to the app |
 
-See [docs/mcp.md](docs/mcp.md) for full MCP documentation.
+See [docs/mcp.md](docs/mcp.md) for the full reference.
 
 ## How it works
 
-Proxy0x runs a local HTTP/SOCKS5 proxy server on `127.0.0.1`. When you connect a proxy, the app:
-
-1. Starts a local listener that accepts browser connections
-2. Sets the Windows system proxy to point to this local server
-3. Forwards all traffic through the selected upstream proxy
-4. Tracks all connections for instant disconnect (no hanging)
-
 ```
-Browser ──► Local Proxy (127.0.0.1) ──► Upstream Proxy ──► Internet
-              │                              │
-              │ HTTP CONNECT / SOCKS5        │ Residential IP
-              │ Connection tracking          │ Session rotation
-              ▼                              ▼
-         Windows System Proxy          api.ipify.org (IP)
-         (auto-configured)             ip-api.com (geo)
+App (WinINET proxy aware) ──► Local proxy 127.0.0.1:<port> ──► Upstream proxy ──► Internet
+                                │                                │
+                                │ HTTP CONNECT tunnels           │ Residential IP
+                                │ plain HTTP (Connection: close) │ Session rotation
+                                ▼                                ▼
+                         Windows system proxy             api.ipify.org (exit IP)
+                         (backed up + restored)           ipwho.is (geolocation)
 ```
+
+When you connect a proxy, Proxy0x:
+
+1. Verifies the exit IP through the upstream proxy (HTTP 200 + valid IP)
+2. Starts a local listener on `127.0.0.1` (random port)
+3. Saves your current Windows proxy settings, then points the system proxy at the local listener
+4. Forwards CONNECT tunnels and plain HTTP requests to the upstream (HTTP or SOCKS5), with 15 s dial/handshake timeouts
+5. Tracks every connection, so Disconnect returns in under a second and restores your previous proxy settings
+
+Rotation swaps the upstream session in place: same local port, open connections untouched.
 
 ## Architecture
 
@@ -172,32 +169,31 @@ Browser ──► Local Proxy (127.0.0.1) ──► Upstream Proxy ──► Int
 │  │    React + TypeScript + Tailwind           │  │
 │  │    Lucide · @dnd-kit · i18n (16 lang)      │  │
 │  └──────────────────┬─────────────────────────┘  │
-│                     │ bindings                    │
+│                     │ bindings (copies, no passwords)
 │  ┌──────────────────▼─────────────────────────┐  │
-│  │           Go Backend                       │  │
-│  │  Proxy Manager · Local Proxy Server        │  │
-│  │  HTTP & SOCKS5 · Health Checker            │  │
-│  │  Speed Test · Auto Rotation · Failover     │  │
-│  │  Kill Switch · DNS Leak · Bulk Checker     │  │
-│  │  DPAPI + AES-GCM Crypto · Config Store     │  │
+│  │           Go backend (app.go)              │  │
+│  │  Proxy manager · Health check · Rotation   │  │
+│  │  Failover · Bulk check · Speed test        │  │
+│  │  internal/proxy   local server, system proxy│ │
+│  │  internal/crypto  DPAPI + AES-256-GCM      │  │
+│  │  internal/killswitch  Windows Firewall     │  │
+│  │  internal/config · internal/fsutil         │  │
 │  └──────────────────┬─────────────────────────┘  │
 │                     │                             │
 │  ┌──────────────────▼─────────────────────────┐  │
-│  │          System Tray                       │  │
-│  │    energye/systray · Language menu         │  │
+│  │          System tray (energye/systray)     │  │
 │  └────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────┘
          │              │              │
          ▼              ▼              ▼
-   api.ipify.org   ip-api.com    Windows System
-   (IP lookup)    (geolocation)  Proxy / Firewall
+   api.ipify.org    ipwho.is     Windows registry
+   (exit IP)      (geolocation)  / Firewall
 
 ┌──────────────────────────────────────────────────┐
-│            MCP Server (stdio)                    │
-│  proxy0x-mcp.exe — separate binary               │
-│  9 tools · 3 resources · 2 prompts              │
-│  SSRF protection · Score-based rotation          │
-│  Shares encrypted proxy store with the app       │
+│            MCP server (stdio)                    │
+│  proxy0x-mcp.exe — separate binary, read-only    │
+│  9 tools · 3 resources · 2 prompts · SSRF guard  │
+│  pkg/proxycore, same crypto as the app           │
 └──────────────────────────────────────────────────┘
          │
          ▼
@@ -208,24 +204,26 @@ Browser ──► Local Proxy (127.0.0.1) ──► Upstream Proxy ──► Int
 
 | Layer | Technology | Role |
 |-------|------------|------|
-| Desktop | Go 1.26, Wails 2.16 | Frameless window, bindings, events, system tray |
-| Frontend | React 18, TypeScript 5.6, Tailwind CSS 3 | Components, theme system, responsive layout |
-| Drag & drop | @dnd-kit | Sortable proxy list with grip handles |
-| Icons | Lucide React | Consistent monochrome iconography |
-| Flags | flagcdn.com | Country flag images with lazy loading |
-| Tray | energye/systray | System tray icon with language and control submenus |
-| Crypto | DPAPI + AES-GCM | DPAPI-protected key (crypt32.dll), AES-GCM credential encryption at rest |
-| Network | net/http, net (stdlib) | HTTP & SOCKS5 proxy, connection pooling, health check |
-| MCP | mcp-go (mark3labs) | Model Context Protocol server for AI agent integration |
-| Installer | Inno Setup 6 | Windows installer with i18n and startup option |
+| Desktop | Go 1.26 (toolchain go1.26.10), Wails 2.16 | Frameless window, bindings, events, system tray |
+| Frontend | React 18, TypeScript 5.6, Tailwind CSS 3, Vite 6 | Components, theme, layout |
+| Drag & drop | @dnd-kit | Sortable proxy list |
+| Icons | Lucide React | Iconography |
+| Flags | flagcdn.com | Country flag images (lazy loaded) |
+| Tray | energye/systray | Tray icon and menu |
+| Crypto | AES-256-GCM + Windows DPAPI (`golang.org/x/sys/windows`) | Credential encryption at rest |
+| Network | `net`, `net/http`, `golang.org/x/net/proxy` | Local proxy, HTTP/SOCKS5 clients |
+| Registry | `golang.org/x/sys/windows/registry` | System proxy backup/restore |
+| MCP | mcp-go (mark3labs) | MCP server |
+| Installer | Inno Setup 6 | Windows installer |
+| CI | GitHub Actions | Tag-triggered release build |
 
 ## Development
 
 ### Prerequisites
 
-- Go 1.26+
+- Go 1.26+ (the `go.mod` toolchain line downloads go1.26.10 automatically)
 - Node.js 18+ and npm
-- Wails CLI v2 (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
+- Wails CLI v2.16 (`go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0`)
 
 ### Dev mode with hot reload
 
@@ -234,98 +232,82 @@ cd frontend && npm install && cd ..
 wails dev
 ```
 
-Frontend updates instantly via Vite HMR. Go changes recompile and restart the app automatically.
-
 ### Production build
 
 ```bash
 wails build -ldflags "-s -w"
+go build -ldflags "-s -w" -o build/bin/proxy0x-mcp.exe ./cmd/proxy0x-mcp
 ```
 
-Binary output: `build/bin/Proxy0x.exe`
+Output: `build/bin/Proxy0x.exe` and `build/bin/proxy0x-mcp.exe`.
 
-### MCP server build
+### Tests and checks
 
 ```bash
-go build -o proxy0x-mcp.exe ./cmd/proxy0x-mcp/
+go vet ./...
+go test ./...
+cd frontend && npx tsc --noEmit
 ```
 
-### Tests
-
-```bash
-go test ./pkg/proxycore/... ./internal/mcpserver/...
-```
+Packages with tests: root (`app`), `internal/proxy`, `internal/crypto`, `internal/fsutil`, `internal/mcpserver`, `pkg/proxycore`. The root package embeds `frontend/dist`, so run `wails build` (or `npm run build` in `frontend/`) once before `go test ./...`. The race detector needs cgo (`CGO_ENABLED=1` and a C compiler).
 
 ### Installer build
 
-Requires [Inno Setup 6](https://jrsoftware.org/isinfo.php).
+Requires [Inno Setup 6](https://jrsoftware.org/isinfo.php) and both binaries in `build/bin/`.
 
 ```bash
-iscc build/installer.iss
+iscc /DMyAppVersion=1.2.3 build\installer.iss
 ```
 
-Generates `build/installer/Proxy0x-Setup-1.0.0.exe`.
+Generates `build/installer/Proxy0x-Setup-1.2.3.exe`. Without `/DMyAppVersion` the version is `0.0.0-dev`.
+
+### Releasing
+
+Releases are published only by pushing a version tag:
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+The `Release` workflow builds the app and the MCP server, runs `go vet` and `go test`, builds the installer and publishes `Proxy0x-Setup-<version>.exe`, `Proxy0x.exe` and `proxy0x-mcp.exe`. Pushing to `main` publishes nothing. Running the workflow manually (`workflow_dispatch`) builds the artifacts without publishing.
 
 ## Project structure
 
 ```
 Proxy0x/
 ├── main.go                      # Entry point, Wails config
-├── app.go                       # App struct, all Wails-bound methods
-├── tray.go                      # System tray with language submenu
-├── mcp_integration.go           # MCP client config install/uninstall/health
+├── app.go                       # App struct and all Wails-bound methods
+├── tray.go                      # System tray
+├── mcp_integration.go           # MCP client config install/uninstall/health check
 ├── internal/
-│   ├── killswitch/
-│   │   └── killswitch.go        # Windows Firewall kill switch (UAC elevation)
 │   ├── proxy/
-│   │   ├── server.go            # Local HTTP/SOCKS5 proxy server
-│   │   └── system.go            # Windows system proxy (registry)
-│   ├── crypto/
-│   │   └── crypto.go            # DPAPI + AES-GCM credential encryption
-│   ├── config/
-│   │   └── config.go            # App configuration persistence
-│   └── mcpserver/
-│       ├── server.go            # MCP server factory
-│       ├── tools.go             # 9 MCP tools
-│       ├── resources.go         # 3 MCP resources
-│       └── prompts.go           # 2 MCP prompts
-├── pkg/proxycore/
-│   ├── types.go                 # Shared proxy types
-│   ├── pool.go                  # Thread-safe proxy pool
-│   ├── client.go                # HTTP/SOCKS5 client builder
-│   ├── store.go                 # Encrypted JSON persistence
-│   ├── ssrf.go                  # SSRF URL validation
-│   └── fetcher.go               # Proxy fetch with SSRF protection
-├── cmd/proxy0x-mcp/
-│   └── main.go                  # MCP server entry point (stdio)
-├── docs/                        # Project documentation
-├── wails.json                   # Wails project config
+│   │   ├── server.go            # Local HTTP/SOCKS5 proxy server, connection tracking
+│   │   └── system.go            # Windows system proxy: backup, set, restore, crash recovery
+│   ├── crypto/crypto.go         # DPAPI-protected key + AES-256-GCM
+│   ├── config/config.go         # App configuration (atomic writes)
+│   ├── fsutil/fsutil.go         # Atomic file writes with .bak
+│   ├── killswitch/killswitch.go # Windows Firewall kill switch, UAC elevation
+│   └── mcpserver/               # MCP tools, resources, prompts
+├── pkg/proxycore/               # MCP-side proxy logic: pool, store, client, SSRF, fetcher
+├── cmd/proxy0x-mcp/             # MCP server entry point (stdio) + example config
 ├── build/
-│   ├── bin/                     # Production binary
+│   ├── installer.iss            # Inno Setup script
+│   ├── bin/                     # Build output (ignored)
 │   ├── installer/               # Installer output
-│   ├── installer.iss            # Inno Setup installer script
-│   └── windows/                 # Icons, manifest, tray icon
-├── assets/
-│   ├── banner.png               # README banner
-│   └── screenshots/             # README screenshots
+│   └── windows/                 # Icons, manifest
+├── .github/workflows/release.yml  # Tag-triggered release
+├── docs/                        # Project documentation (+ docs/audit/: audit reports)
+├── assets/                      # Banner, screenshots
 └── frontend/
     ├── src/
     │   ├── App.tsx              # Root component, routing, DnD context
-    │   ├── i18n/
-    │   │   ├── translations.ts  # 16 language sets (83 keys each)
-    │   │   └── LanguageContext.tsx
-    │   └── components/
-    │       ├── TitleBar.tsx      # Window controls, theme, language
-    │       ├── ProxyCard.tsx     # Sortable proxy card with naming + copy IP
-    │       ├── ProxyForm.tsx     # Input and batch import
-    │       ├── SettingsPage.tsx  # Settings, security, tools, MCP integration
-    │       ├── ContextMenu.tsx   # Right-click language selector
-    │       ├── StatusBadge.tsx   # Status indicator
-    │       ├── MyIPBadge.tsx     # Real IP display
-    │       ├── FlagIcon.tsx      # Country flag
-    │       └── EmptyState.tsx    # Empty state
-    ├── wailsjs/                  # Auto-generated Go↔TS bindings
-    └── tailwind.config.js        # Theme tokens
+    │   ├── i18n/                # translations.ts (16 languages), LanguageContext
+    │   └── components/          # TitleBar, ProxyCard, ProxyForm, SettingsPage,
+    │                            # StatusBadge, MyIPBadge, FlagIcon, EmptyState
+    │                            # (ContextMenu.tsx exists but is not mounted)
+    ├── wailsjs/                 # Auto-generated Go↔TS bindings
+    └── tailwind.config.js       # Theme tokens
 ```
 
 ## Documentation
@@ -335,26 +317,37 @@ Proxy0x/
 | [Architecture](docs/architecture.md) | System architecture, data flow, module layout |
 | [Backend](docs/backend.md) | Go backend: proxy manager, local server, health checks |
 | [Frontend](docs/frontend.md) | React components, i18n, Tailwind theme |
-| [API Reference](docs/api.md) | All Wails-exposed Go methods |
+| [API Reference](docs/api.md) | Wails-exposed Go methods |
 | [MCP Server](docs/mcp.md) | MCP tools, resources, prompts, SSRF protection |
-| [Business Rules](docs/business-rules.md) | Scoring, rotation, health check, session logic |
+| [Business Rules](docs/business-rules.md) | Connection lifecycle, rotation, health check, persistence |
 | [Data Models](docs/data.md) | Types, persistence, file formats |
-| [Security](docs/security.md) | Encryption, SSRF, credential handling |
+| [Security](docs/security.md) | Encryption, SSRF, system proxy, credential handling |
 | [Design System](docs/design-system.md) | Color tokens, typography, component patterns |
-| [Market Research](docs/market-research.md) | Proxy market analysis and competitor research |
-| [AGENTS.md](docs/AGENTS.md) | Instructions for AI agents working with this codebase |
+| [Audit](docs/audit/) | Baseline, findings, remediation plan and change log |
+| [Market Research](docs/market-research.md) | Proxy market analysis |
+| [AGENTS.md](docs/AGENTS.md) | Instructions for AI agents |
 | [CLAUDE.md](docs/CLAUDE.md) | Claude Code project configuration |
 
 ## External services
 
-| Service | Usage | Limit |
-|---------|-------|-------|
-| [api.ipify.org](https://www.ipify.org/) | Discover current IP through proxy | No documented limit |
-| [ip-api.com](http://ip-api.com/) | IP geolocation (country, city, ISP, AS) | 45 req/min (free tier) |
-| [ipwho.is](https://ipwho.is/) | Geolocation for MCP server | No documented limit |
-| [flagcdn.com](https://flagcdn.com/) | Country flag images | CDN, no limit |
+| Service | Usage |
+|---------|-------|
+| [api.ipify.org](https://www.ipify.org/) | Exit IP through the proxy, and your direct IP |
+| [ipwho.is](https://ipwho.is/) | IP geolocation (app and MCP server) |
+| [speed.cloudflare.com](https://speed.cloudflare.com/) | Speed test download sample |
+| [flagcdn.com](https://flagcdn.com/) | Country flag images |
+| Google Fonts | Inter font (loaded by the UI) |
+
+## Known limitations
+
+- **System proxy scope:** only applications that honor the Windows (WinINET) system proxy are routed. UDP traffic (e.g. WebRTC, QUIC) and apps with their own network stack are not covered and can reveal your real IP.
+- **Kill switch (known risk):** it adds a Windows Firewall rule that blocks all outbound traffic plus allow rules for Proxy0x and loopback. Windows Firewall gives block rules precedence over allow rules, so verify on your machine that Proxy0x itself still connects before relying on it. The rules persist if the app is killed or uninstalled while the switch is on; turn it off from the app (UAC prompt) to remove them.
+- **"DNS leak test"** compares the exit IP through the proxy with your direct IP. It is an exit-IP check, not a DNS resolver test.
+- **Remote resources:** the UI loads Google Fonts and flagcdn.com images, which reveal your IP to those services when no proxy is connected.
+- **Single active proxy:** connecting one proxy disconnects the previous one.
+- Windows x64 only.
 
 ## Requirements
 
-- Windows 10/11
+- Windows 10/11 (x64)
 - WebView2 Runtime (pre-installed on Windows 10 21H2+ and Windows 11)

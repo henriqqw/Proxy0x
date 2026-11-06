@@ -21,18 +21,44 @@ Connect, rotate, health check and speed test verify the exit IP by fetching `api
 
 Configured in Settings as an interval in seconds. Presets: 1, 3, 5, 10 minutes. Custom values: 1–120 minutes.
 
-- A background goroutine (`autoRotateLoop`) sleeps for the configured interval, then rotates all active proxies.
+- A background goroutine (`autoRotateLoop`) polls every 10s and rotates all active proxies once the configured interval has elapsed.
 - Setting the interval to `0` disables auto-rotation.
 - The interval is persisted in `config.json` and restored on startup.
 
 ## Health Check Loop
 
-A background goroutine (`healthCheckLoop`) runs every `HealthCheckInterval` seconds (default: 180s / 3 min).
+A background goroutine (`healthCheckLoop`) polls every 30s and checks active proxies every `HealthCheckInterval` seconds (default: 180s / 3 min), 1.5s apart.
 
 For each active proxy:
 1. Verify the exit IP (see **Exit IP verification**).
-2. If verification fails, mark the proxy as `error` and emit a Windows notification.
-3. If it succeeds, update `Latency`, `LastCheck` and, when the IP changed, `CurrentIP` and geolocation.
+2. If verification fails, mark the proxy as `error`. If it was `connected`, log a drop, emit `proxy-dropped` (Windows notification) and run **Auto-Failover**. The system proxy keeps pointing at the local server (fail-closed): traffic stops until the user acts or failover connects another proxy.
+3. If it succeeds, set `Status = connected` again (recovery after a transient failure), update `Latency`, `LastCheck` and, when the IP changed, `CurrentIP` and geolocation.
+
+## Auto-Failover
+
+Toggle in Settings → Security (`config.json` → `autoFailover`, off by default). When a connected proxy drops (step 2 above):
+
+1. Candidates: every proxy except the failed one that is not active.
+2. Pick the candidate with the lowest positive `Latency`; if none has a latency, the first candidate found (map order, not deterministic).
+3. Log `failover` and call `ConnectProxy` on it in the background, which disconnects the failed proxy first.
+
+There is no retry limit or backoff: if the new proxy also drops, the next health check fails over again.
+
+## Kill Switch
+
+Toggle in Settings → Security (`config.json` → `killSwitch`). Adds Windows Firewall rules that block outbound traffic except for Proxy0x and loopback, via an elevated script (UAC). Turning it off — or quitting the app — removes the rules (UAC again); it is not re-enabled automatically on the next start. Risks and limitations: `docs/security.md` → Kill switch.
+
+## Connect Fastest
+
+`ConnectFastest()` verifies the exit IP of every inactive proxy concurrently (10 at a time), takes the one with the lowest latency and connects it. Fails with "no proxy responded" when none passes verification.
+
+## Bulk Check
+
+`BulkCheckProxies()` verifies every proxy concurrently (10 at a time) and returns per proxy: alive, latency, exit IP, country and an anonymity label — `transparent` when the exit IP equals the user's real IP, `elite` when different, `unknown` when either IP is missing. It updates each proxy's `Latency` and `LastCheck` and emits `bulk-check-progress` per result.
+
+## DNS Leak Test
+
+`CheckDNSLeak()` compares the active proxy's exit IP with the user's direct IP: equal → leaked; no active proxy → leaked; a failed lookup → not leaked (unknown). It does not inspect DNS resolvers.
 
 ## Connection Lifecycle
 
@@ -59,11 +85,12 @@ Removing the active proxy disconnects it first (local server stopped, system pro
 
 ## Credential Encryption
 
-Uses AES-256-GCM with a per-machine key stored at `%AppData%/Proxy0x/.key`.
+Uses AES-256-GCM with a per-user key stored at `%AppData%/Proxy0x/.key`, itself protected with Windows DPAPI (see `docs/security.md` for format and migration).
 
-- **On save**: plaintext credentials are encrypted and stored with an `enc:` prefix followed by base64-encoded ciphertext.
-- **On load**: values with the `enc:` prefix are decrypted; plaintext values pass through unchanged (backward compatibility).
+- **On save**: plaintext credentials are encrypted and stored with an `enc:` prefix followed by base64-encoded ciphertext. An encryption failure aborts the save (plaintext is never written).
+- **On load**: values with the `enc:` prefix are decrypted; plaintext values pass through unchanged (backward compatibility). A decryption failure puts the store in read-only mode.
 - Empty strings are not encrypted.
+- The desktop app and the MCP server use the same implementation (`internal/crypto`).
 
 ## Proxy Persistence
 
@@ -78,31 +105,37 @@ Proxies are stored in `%AppData%/Proxy0x/proxies.json` as a JSON array.
 
 ## Log Ring Buffer
 
-Connection events are stored in a ring buffer capped at **200 entries**. Newest entries are prepended (index 0 = most recent). When the buffer is full, the oldest entry is discarded.
-
-Each `LogEntry` records: timestamp, action type, proxy ID, host, and detail string.
+Connection events are kept in memory, capped at **200 entries** (oldest discarded). `GetConnectionLog()` returns them newest first. Each `LogEntry` records: timestamp, action type, proxy ID, host, and detail string. Every entry is also emitted as `log-entry`; the current UI does not display the log.
 
 ## Proxy Format
+
+Single add and batch add (`AddProxy`, `AddProxiesBatch`):
 
 ```
 [protocol://]host:port[:user:pass]
 ```
 
 - Protocol prefix is optional. Supported: `http://` (default), `socks5://`.
-- Minimum: `host:port`. With credentials: `host:port:user:pass`.
-- `ParseProxy()` extracts fields and generates a random `ID` and `SessionID`.
+- `parseProxy()` extracts fields and generates a random `ID` and 6-byte `SessionID`.
+
+Import in Settings (`AddProxiesMultiFormat`) also accepts, one per line (blank lines and `#` comments ignored; invalid lines skipped silently):
+
+- URIs: `socks5://user:pass@host:port`, `http://…`, `https://…` (port defaults to `8080`). `socks4://` is accepted but treated as **SOCKS5**.
+- CSV: `host,port[,user,pass[,protocol]]` where protocol `socks5`/`socks4` → SOCKS5, anything else → HTTP.
+
+## Proxy Name
+
+Each proxy has an optional display `Name` (`SetProxyName`); the card shows it instead of `host:port` when set. Persisted in `proxies.json`.
 
 ## Group Management
 
-- Each proxy has an optional `Group` string tag.
+- Each proxy has an optional `Group` string tag (`SetProxyGroup`).
 - Groups are derived dynamically from the proxy list (no separate group store).
-- Operations: `ConnectGroup(name)`, `DisconnectGroup(name)`, filter by group in the UI.
+- The UI filters the list by group. `ConnectGroup` / `DisconnectGroup` bindings exist but are not used by the UI (and connecting a group conflicts with the one-active-proxy rule).
 
 ## Speed Test
 
-`BenchmarkProxy()` measures two metrics:
+`BenchmarkProxy()` returns a map with:
 
-1. **Connect latency** (ms): time to establish a TCP connection through the proxy.
-2. **Download speed** (Mbps): download a 10 MB test file through the proxy, calculate throughput.
-
-Results are returned as a map with `connectTime` and `downloadSpeed` keys.
+1. `connectMs` — exit-IP verification time through the proxy (see **Exit IP verification**).
+2. `downloadMs` / `downloadMbps` — download 100 KB from `speed.cloudflare.com` through the proxy; `downloadMs = -1` and `downloadMbps = 0` when the download fails.

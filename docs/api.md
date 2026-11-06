@@ -1,175 +1,161 @@
 # Wails API Reference
 
-All public methods on the `App` struct in `app.go` are exposed to the React frontend via Wails bindings. TypeScript declarations are auto-generated at `frontend/wailsjs/go/main/App.d.ts`.
+Every exported method on `App` (`app.go`, `mcp_integration.go`) is bound to the React frontend. TypeScript declarations are generated in `frontend/wailsjs/go/main/App.d.ts`; a Go `error` return becomes a rejected Promise.
+
+**Proxy values are copies.** Every `ProxyEntry` returned by a binding or sent in a `proxy-updated` event is a snapshot taken under the lock with `password` blanked. The password never reaches the webview; `ExportProxies` is the only call that returns credentials.
+
+**Read-only store.** If `proxies.json` could not be loaded (invalid JSON or undecryptable credentials), mutating calls (`AddProxy`, `AddProxiesBatch`, `AddProxiesMultiFormat`, `RemoveProxy`, `ReorderProxies`, `SetProxyGroup`, `SetProxyName`) return an error and a `store-error` event is emitted.
 
 ## Proxy CRUD
 
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `AddProxy` | `raw string` | `ProxyEntry` | Parse `host:port[:user:pass]` and add to pool. Supports `socks5://` prefix. |
-| `AddProxiesBatch` | `text string` | `[]ProxyEntry` | Add multiple proxies, one per line. |
-| `RemoveProxy` | `id string` | — | Remove proxy by ID. Disconnects first if active. |
-| `GetProxies` | — | `[]ProxyEntry` | List all proxies, ordered by `Order` field. |
-| `ReorderProxies` | `ids []string` | — | Set display order from an array of proxy IDs. |
-
-## Connection
-
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `ConnectProxy` | `id string` | `ProxyEntry` | Start local proxy server, set Windows system proxy, verify IP via api.ipify.org, fetch geolocation. |
-| `DisconnectProxy` | `id string` | `ProxyEntry` | Stop local proxy, clear system proxy, close tracked connections. |
-| `RotateProxy` | `id string` | `ProxyEntry` | Generate new session ID → new IP. Reconnects automatically. |
-| `RestartProxy` | `id string` | `ProxyEntry` | Disconnect then reconnect (full restart cycle). |
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `AddProxy` | `(raw string) (*ProxyEntry, error)` | Parse `[socks5://\|http://]host:port[:user:pass]`, add, persist. |
+| `AddProxiesBatch` | `(raw string) ([]*ProxyEntry, error)` | One proxy per line (same format); invalid lines are skipped. |
+| `AddProxiesMultiFormat` | `(raw string) ([]*ProxyEntry, error)` | Lines as URI (`socks5://`, `socks4://`, `http://`, `https://` with optional `user:pass@`), CSV `host,port[,user,pass[,protocol]]`, or `host:port[:user:pass]`. `#` lines are comments. `socks4` is stored as `socks5`. |
+| `RemoveProxy` | `(id string) error` | Disconnects first if active (local server stopped, system proxy restored), then deletes and closes its HTTP client. |
+| `GetProxies` | `() []*ProxyEntry` | All proxies sorted by `Order`. |
+| `ReorderProxies` | `(ids []string) error` | Sets `Order` from the array index. |
+| `ExportProxies` | `() string` | `host:port[:user:pass]` lines, **plaintext credentials**. |
+| `SetProxyName` | `(id, name string) (*ProxyEntry, error)` | Custom display name. |
 
 ## Groups
 
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `GetGroups` | — | `[]string` | Distinct group names across all proxies. |
-| `SetProxyGroup` | `id string, group string` | `ProxyEntry` | Assign a proxy to a group (empty string removes). |
-| `ConnectGroup` | `group string` | — | Connect all proxies in a group. |
-| `DisconnectGroup` | `group string` | — | Disconnect all proxies in a group. |
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `GetGroups` | `() []string` | Sorted distinct group names. |
+| `SetProxyGroup` | `(id, group string) (*ProxyEntry, error)` | Empty string removes the group. |
+| `ConnectGroup` | `(group string) error` | Connects each inactive proxy of the group in sequence. Only one proxy can be active, so the last successful one wins. Not used by the UI. |
+| `DisconnectGroup` | `(group string) error` | Disconnects active proxies of the group. Not used by the UI. |
 
-## Monitoring
+## Connection
 
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `CheckHealth` | `id string` | `ProxyEntry` | Test proxy connectivity, update latency and status. |
-| `BenchmarkProxy` | `id string` | `map[string]any` | Speed test: measure connect latency (ms) and download speed (Mbps). |
-| `GetMyIP` | — | `string` | Fetch current public IP via api.ipify.org (direct, not through proxy). |
-| `GetConnectionLog` | — | `[]LogEntry` | Last 200 log entries (newest first). |
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `ConnectProxy` | `(id string) (*ProxyEntry, error)` | Disconnects the active proxy, verifies the exit IP (HTTP 200 + valid IP), fetches geolocation, starts the local server and points the system proxy at it. Any failure → `status=error`. |
+| `DisconnectProxy` | `(id string) (*ProxyEntry, error)` | Stops the local server (returns in < 1 s), restores the user's system proxy, accumulates `totalUptime`. |
+| `RotateProxy` | `(id string) (*ProxyEntry, error)` | Verifies a candidate session first; on success switches session and updates the local server in place (same port, open connections kept). On failure the previous session and status are kept and an error is returned. |
+| `RestartProxy` | `(id string) (*ProxyEntry, error)` | Disconnect + connect. Not used by the UI. |
+| `ConnectFastest` | `() (*ProxyEntry, error)` | Verifies every inactive proxy (10 in parallel), connects the one with the lowest latency. |
 
-## Settings
+## Monitoring & tools
 
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `GetAutoRotateInterval` | — | `int` | Current auto-rotate interval in seconds (0 = disabled). |
-| `SetAutoRotateInterval` | `seconds int` | — | Set auto-rotate interval. 0 disables. |
-| `GetHealthCheckInterval` | — | `int` | Current health check interval in seconds. |
-| `SetHealthCheckInterval` | `seconds int` | — | Set health check interval. |
-| `GetLanguage` | — | `string` | Current language code (e.g. `en`, `pt-BR`). |
-| `SetLanguage` | `code string` | — | Change UI language. |
-| `GetTheme` | — | `string` | Current theme (`dark` or `light`). |
-| `SetTheme` | `theme string` | — | Change theme. |
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `CheckHealth` | `(id string) (*ProxyEntry, error)` | Exit IP check for an active proxy. Failure → `error` + `proxy-dropped` (and auto-failover if enabled); success restores `connected`. Also run by the health loop. |
+| `BenchmarkProxy` | `(id string) (map[string]interface{}, error)` | `connectMs` (exit IP check) and `downloadMs`/`downloadMbps` (100 KB from speed.cloudflare.com). |
+| `BulkCheckProxies` | `() []BulkCheckResult` | Checks all proxies (10 in parallel); emits `bulk-check-progress` per result; updates `latency`/`lastCheck`. |
+| `CheckDNSLeak` | `() DNSLeakResult` | Compares the active proxy's exit IP with the direct public IP (`GetMyIP`). `leaked=true` when they match or when no proxy is active. This detects "traffic not going through the proxy", not DNS-resolver leaks. |
+| `GetMyIP` | `() (string, error)` | Direct public IP via api.ipify.org, 10 s timeout. |
+| `GetConnectionLog` | `() []LogEntry` | Last 200 log entries, newest first. Not used by the UI. |
 
-## Security
+## Settings & security
 
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `GetKillSwitch` | — | `bool` | Whether the kill switch (firewall rules) is active. |
-| `SetKillSwitch` | `enabled bool` | — | Enable/disable kill switch. Blocks all traffic except through the proxy app. Requires UAC elevation. |
-| `GetAutoFailover` | — | `bool` | Whether auto-failover is enabled. |
-| `SetAutoFailover` | `enabled bool` | — | Enable/disable auto-failover. On proxy drop, connects to the next best proxy automatically. |
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `GetLanguage` / `SetLanguage` | `() string` / `(lang string)` | UI language; emits `language-changed`. |
+| `GetTheme` / `SetTheme` | `() string` / `(theme string)` | `dark`/`light`; emits `theme-changed`. |
+| `GetAutoRotateInterval` / `SetAutoRotateInterval` | `() int` / `(seconds int)` | 0 disables; emits `config-changed`. |
+| `GetHealthCheckInterval` / `SetHealthCheckInterval` | `() int` / `(seconds int)` | Min 60, default 180; emits `config-changed`. Not exposed in the UI. |
+| `GetKillSwitch` | `() bool` | The saved config flag (not a live firewall query). |
+| `SetKillSwitch` | `(enabled bool) error` | Adds/removes the `Proxy0x-KillSwitch-*` Windows Firewall rules through an elevated (UAC) script, then saves the flag. Disabled again on app shutdown. |
+| `GetAutoFailover` / `SetAutoFailover` | `() bool` / `(enabled bool)` | When a connected proxy drops, connect the inactive proxy with the lowest known latency. |
+| `EnableUWPSupport` | `() error` | Elevated `CheckNetIsolation LoopbackExempt` for Edge, Store, Search, Paint. |
 
-## Tools
+## MCP integration
 
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `CheckDNSLeak` | `id string` | `DNSLeakResult` | Compare exit IP through proxy vs direct IP. Detects DNS leaks. |
-| `BulkCheckProxies` | — | `[]BulkCheckResult` | Test all proxies in parallel (10 workers). Returns latency, anonymity level, status. |
-| `ConnectFastest` | — | `string` | Run health checks on all proxies, connect the one with lowest latency. Returns proxy ID. |
-| `EnableUWPSupport` | — | — | Run `CheckNetIsolation` to exempt UWP/Store apps from loopback restrictions. Requires UAC elevation. |
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `GetMCPStatus` | `() MCPStatus` | Binary path/existence and, per client, detection and whether `proxy0x` is configured. |
+| `InstallMCPClient` | `(clientID string) error` | Adds `mcpServers.proxy0x` to the client's config. Aborts on unparseable JSON; writes atomically with a `<file>.proxy0x.bak` backup. |
+| `UninstallMCPClient` | `(clientID string) error` | Removes `mcpServers.proxy0x` (same safety rules). |
+| `CheckMCPHealth` | `() MCPStatus` | Starts `proxy0x-mcp.exe` hidden, sends JSON-RPC `initialize`, keeps stdin open until a `result` arrives (5 s timeout). |
 
-## Proxy Naming
-
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `SetProxyName` | `id string, name string` | `ProxyEntry` | Assign a custom display name to a proxy. |
-
-## Import / Export
-
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `ExportProxies` | — | `string` | All proxies as `host:port:user:pass` text, one per line. |
-| `AddProxiesBatch` | `text string` | `[]ProxyEntry` | Import from multi-line text (legacy, one per line). |
-| `AddProxiesMultiFormat` | `text string` | `[]ProxyEntry` | Import from multi-format text: `socks5://user:pass@host:port` URI, CSV, or `host:port:user:pass`. |
-
-## MCP Integration
-
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `GetMCPStatus` | — | `MCPStatus` | Check if MCP is configured and binary exists. |
-| `InstallMCPConfig` | — | — | Write proxy0x entry to Claude Desktop config. |
-| `UninstallMCPConfig` | — | — | Remove proxy0x entry from Claude Desktop config. |
-| `CheckMCPHealth` | — | `MCPStatus` | Spawn MCP binary, send initialize request, verify response. |
-
-### MCPStatus
-
-```go
-type MCPStatus struct {
-    Installed   bool   `json:"installed"`
-    ExePath     string `json:"exePath"`
-    ExeExists   bool   `json:"exeExists"`
-    ConfigPath  string `json:"configPath"`
-    HealthOK    bool   `json:"healthOk"`
-    HealthError string `json:"healthError,omitempty"`
-}
-```
+Client IDs and config files: `claude-desktop` (`%AppData%\Claude\claude_desktop_config.json`), `codex` (`~\.codex\config.json`), `cursor` (`~\.cursor\mcp.json`), `windsurf` (`~\.codeium\windsurf\mcp_config.json`).
 
 ## Window
 
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `MinimizeWindow` | — | — | Minimize to taskbar. |
-| `CloseWindow` | — | — | Hide window (stays in system tray). |
-| `ShowWindow` | — | — | Restore from tray. |
-| `ToggleMaximize` | — | — | Toggle maximize/restore. |
-| `QuitApp` | — | — | Stop local proxy, clear system proxy, exit. |
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `MinimizeWindow` | `()` | Minimize. |
+| `CloseWindow` | `()` | Hide to tray. |
+| `ShowWindow` | `()` | Restore from tray. Not used by the UI (the tray calls the runtime directly). |
+| `ToggleMaximize` | `()` | Maximize/restore. |
+| `QuitApp` | `()` | Stop local server, restore system proxy, quit. Not used by the UI. |
+
+## Events (Go → frontend)
+
+| Event | Payload | Emitted when |
+|-------|---------|--------------|
+| `proxy-updated` | `ProxyEntry` (copy, no password) | Any change to a single proxy (connect, disconnect, rotate, health, add, rename, group). |
+| `proxies-changed` | — | List changed (batch add, multi-format import, remove). |
+| `proxy-dropped` | `{id, host}` | Health check failed on a connected proxy. |
+| `store-error` | `string` | `proxies.json` could not be loaded or saved; the store is read-only. |
+| `bulk-check-progress` | `BulkCheckResult` | Each result of `BulkCheckProxies`. |
+| `language-changed` | `string` | `SetLanguage`. |
+| `theme-changed` | `string` | `SetTheme`. |
+| `config-changed` | `Config` | `SetAutoRotateInterval`, `SetHealthCheckInterval`. |
+| `log-entry` | `LogEntry` | Every log line. No listener in the UI. |
 
 ## Types
-
-### ProxyEntry
 
 ```go
 type ProxyEntry struct {
     ID          string      `json:"id"`
+    Name        string      `json:"name"`
     Host        string      `json:"host"`
     Port        string      `json:"port"`
     Username    string      `json:"username"`
-    Password    string      `json:"password"`
-    Protocol    string      `json:"protocol"`       // "http" or "socks5"
+    Password    string      `json:"password"`   // always "" in bindings/events
+    Protocol    string      `json:"protocol"`   // "http" | "socks5"
     Group       string      `json:"group"`
-    Name        string      `json:"name"`            // custom display name
-    Status      ProxyStatus `json:"status"`          // offline|connecting|connected|error
+    Status      ProxyStatus `json:"status"`     // offline | connecting | connected | error
     CurrentIP   string      `json:"currentIp"`
     Location    *GeoInfo    `json:"location"`
-    Latency     int64       `json:"latency"`         // ms
-    LastCheck   string      `json:"lastCheck"`
+    Latency     int64       `json:"latency"`    // ms
+    LastCheck   string      `json:"lastCheck"`  // RFC 3339
     Active      bool        `json:"active"`
-    SessionID   string      `json:"sessionId"`
+    SessionID   string      `json:"sessionId"`  // 12 hex chars
     Order       int         `json:"order"`
     ConnectedAt string      `json:"connectedAt"`
-    TotalUptime int64       `json:"totalUptime"`     // seconds
+    TotalUptime int64       `json:"totalUptime"` // seconds
 }
-```
 
-### DNSLeakResult
-
-```go
-type DNSLeakResult struct {
-    ProxyIP  string `json:"proxyIp"`
-    DirectIP string `json:"directIp"`
-    Leaking  bool   `json:"leaking"`
-}
-```
-
-### BulkCheckResult
-
-```go
 type BulkCheckResult struct {
-    ID        string `json:"id"`
-    Host      string `json:"host"`
-    Port      string `json:"port"`
-    Status    string `json:"status"`    // "ok" or "fail"
-    Latency   int64  `json:"latency"`   // ms
-    Anonymity string `json:"anonymity"` // "transparent", "anonymous", "elite"
-    Error     string `json:"error,omitempty"`
+    ID          string `json:"id"`
+    Host        string `json:"host"`        // host:port
+    Alive       bool   `json:"alive"`       // exit IP verified (HTTP 200 + valid IP)
+    Latency     int64  `json:"latency"`
+    ExitIP      string `json:"exitIp"`
+    Country     string `json:"country"`
+    CountryCode string `json:"countryCode"`
+    Anonymity   string `json:"anonymity"`   // "elite" (exit ≠ real IP) | "transparent" | "unknown"
+    Error       string `json:"error,omitempty"`
 }
-```
 
-### LogEntry
+type DNSLeakResult struct {
+    ProxyIP   string `json:"proxyIp"`
+    DNSIP     string `json:"dnsIp"`      // direct public IP
+    DNSServer string `json:"dnsServer"`  // currently never set
+    Leaked    bool   `json:"leaked"`
+}
 
-```go
+type MCPStatus struct {
+    ExePath     string          `json:"exePath"`
+    ExeExists   bool            `json:"exeExists"`
+    Clients     []MCPClientInfo `json:"clients"`
+    HealthOK    bool            `json:"healthOk"`
+    HealthError string          `json:"healthError,omitempty"`
+}
+
+type MCPClientInfo struct {
+    ID         string `json:"id"`
+    Name       string `json:"name"`
+    Detected   bool   `json:"detected"`
+    Installed  bool   `json:"installed"`
+    ConfigPath string `json:"configPath"`
+}
+
 type LogEntry struct {
     Time    string `json:"time"`
     Action  string `json:"action"`
@@ -179,14 +165,15 @@ type LogEntry struct {
 }
 ```
 
-## Frontend bindings
+`GeoInfo` and `Config`: see `docs/data.md`.
 
-Wails auto-generates TypeScript bindings at:
-- `frontend/wailsjs/go/main/App.js` — runtime stubs
-- `frontend/wailsjs/go/main/App.d.ts` — type declarations
-- `frontend/wailsjs/go/models.ts` — Go struct types as TS classes
+## Known gaps
 
-Import in React:
+- `DNSLeakResult.DNSServer` is declared but never filled.
+
+## Frontend usage
+
 ```typescript
 import { ConnectProxy, GetProxies } from 'wailsjs/go/main/App'
+import { EventsOn } from 'wailsjs/runtime/runtime'
 ```

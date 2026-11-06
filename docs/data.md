@@ -2,122 +2,87 @@
 
 ## Models
 
-### ProxyEntry
+### ProxyEntry (`app.go`)
 
-Primary data model for a proxy in the pool.
-
-| Field | Type | JSON | Description |
-|-------|------|------|-------------|
-| ID | string | `id` | Random 8-byte hex, generated on add |
-| Host | string | `host` | Proxy hostname or IP |
-| Port | string | `port` | Proxy port |
-| Username | string | `username` | Auth username (encrypted at rest) |
-| Password | string | `password` | Auth password (encrypted at rest) |
+| Field | Type | JSON | Notes |
+|-------|------|------|-------|
+| ID | string | `id` | 8 random bytes, hex |
+| Name | string | `name` | Custom display name (optional) |
+| Host | string | `host` | |
+| Port | string | `port` | |
+| Username | string | `username` | Encrypted at rest |
+| Password | string | `password` | Encrypted at rest; always `""` in bindings and events |
 | Protocol | string | `protocol` | `http` or `socks5` |
-| Group | string | `group` | Optional group tag |
-| Status | ProxyStatus | `status` | `offline` / `connecting` / `connected` / `error` |
-| CurrentIP | string | `currentIp` | External IP when connected |
-| Location | *GeoInfo | `location` | Geolocation data, nil when unknown |
-| Latency | int64 | `latency` | Last measured latency in ms |
-| LastCheck | string | `lastCheck` | ISO 8601 timestamp of last health check |
-| Active | bool | `active` | Whether the proxy is selected for use |
-| SessionID | string | `sessionId` | Current rotation session (8-byte hex) |
-| Order | int | `order` | Display order for drag-to-reorder |
-| ConnectedAt | string | `connectedAt` | ISO 8601 timestamp when connected |
-| TotalUptime | int64 | `totalUptime` | Accumulated uptime in seconds |
+| Group | string | `group` | Optional tag |
+| Status | ProxyStatus | `status` | `offline` / `connecting` / `connected` / `error` (runtime) |
+| CurrentIP | string | `currentIp` | Exit IP (runtime) |
+| Location | *GeoInfo | `location` | From `ipwho.is` |
+| Latency | int64 | `latency` | ms (runtime) |
+| LastCheck | string | `lastCheck` | RFC 3339 |
+| Active | bool | `active` | The single connected proxy (runtime) |
+| SessionID | string | `sessionId` | 6 random bytes, hex; appended as `_session-<id>` to the username |
+| Order | int | `order` | Display order |
+| ConnectedAt | string | `connectedAt` | RFC 3339 |
+| TotalUptime | int64 | `totalUptime` | Seconds, accumulated on disconnect |
+
+Runtime fields (`status`, `active`, `currentIp`, `latency`) are reset on save and on load.
 
 ### GeoInfo
 
-IP geolocation data fetched from `ip-api.com`.
+`country`, `countryCode`, `region`, `city`, `isp`, `org`, `lat`, `lon`, `timezone`, `as` (e.g. `AS13335`). Mapped from the `ipwho.is` response.
 
-| Field | Type | JSON |
-|-------|------|------|
-| Country | string | `country` |
-| CountryCode | string | `countryCode` |
-| Region | string | `region` |
-| City | string | `city` |
-| ISP | string | `isp` |
-| Org | string | `org` |
-| Lat | float64 | `lat` |
-| Lon | float64 | `lon` |
-| Timezone | string | `timezone` |
-| AS | string | `as` |
+### Config (`internal/config`)
 
-### LogEntry
+| Field | JSON | Default |
+|-------|------|---------|
+| Language | `language` | `en` |
+| Theme | `theme` | `dark` |
+| AutoRotateInterval | `autoRotateInterval` | `0` (off), seconds |
+| HealthCheckInterval | `healthCheckInterval` | `180`, seconds (min 60 via setter) |
+| KillSwitch | `killSwitch` | `false` |
+| AutoFailover | `autoFailover` | `false` |
 
-Connection event log entry.
+Other API types (`LogEntry`, `BulkCheckResult`, `DNSLeakResult`, `MCPStatus`, `MCPClientInfo`): `docs/api.md`. MCP-side types (`pkg/proxycore`: `ProxyEntry` without `name`, `PoolStats {total, active, healthy, errored, avgLatencyMs}`, `FetchResult`): `docs/mcp.md`.
 
-| Field | Type | JSON |
-|-------|------|------|
-| Time | string | `time` |
-| Action | string | `action` |
-| ProxyID | string | `proxyId` |
-| Host | string | `host` |
-| Detail | string | `detail` |
+## Files
 
-### MCPStatus
+All under `%AppData%` (`os.UserConfigDir()`):
 
-Status of the MCP (Model Context Protocol) integration with Claude Desktop.
+| Path | Format | Written by | Purpose |
+|------|--------|-----------|---------|
+| `Proxy0x/proxies.json` | JSON array of `ProxyEntry` | App only (atomic) | Proxy store; credentials as `enc:...` |
+| `Proxy0x/proxies.json.bak` | same | App | Previous version, kept on every save |
+| `Proxy0x/config.json` (+ `.bak`) | JSON `Config` | App (atomic) | Settings |
+| `Proxy0x/.key` | `dpapi:<base64>` | App or MCP (first use) | AES-256 key protected with DPAPI (current user) |
+| `Proxy0x/.key.legacy` | 32 raw bytes | App (once, on migration) | Pre-DPAPI key, kept as a backup |
+| `Proxy0x/sysproxy-backup.json` | JSON (below) | App, while connected | User's Windows proxy settings to restore |
+| MCP client config + `<file>.proxy0x.bak` | JSON | App (MCP integration) | `mcpServers.proxy0x` entry and backup |
 
-| Field | Type | JSON |
-|-------|------|------|
-| Installed | bool | `installed` |
-| ExePath | string | `exePath` |
-| ExeExists | bool | `exeExists` |
-| ConfigPath | string | `configPath` |
-| HealthOK | bool | `healthOk` |
-| HealthError | string | `healthError` |
+`sysproxy-backup.json`:
 
-### PoolStats
-
-Summary statistics for the proxy pool.
-
-| Field | Type | JSON |
-|-------|------|------|
-| Total | int | `total` |
-| Active | int | `active` |
-| Connected | int | `connected` |
-
-### Config
-
-Application configuration persisted between sessions.
-
-| Field | Type | JSON | Default |
-|-------|------|------|---------|
-| Language | string | `language` | `en` |
-| Theme | string | `theme` | `dark` |
-| AutoRotateInterval | int | `autoRotateInterval` | `0` (disabled) |
-| HealthCheckInterval | int | `healthCheckInterval` | `180` (3 min) |
-
-## File Locations
-
-All under `%AppData%` (`os.UserConfigDir()` on Windows).
-
-| Path | Format | Description |
-|------|--------|-------------|
-| `Proxy0x/proxies.json` | JSON array | Encrypted proxy store |
-| `Proxy0x/.key` | Raw bytes (32B) | AES-256 encryption key, auto-generated |
-| `Proxy0x/config.json` | JSON object | App settings |
-| `Claude/claude_desktop_config.json` | JSON object | Claude Desktop MCP server config |
-
-## Encryption Format
-
-Credentials are stored with an `enc:` prefix:
-
-```
-enc:<base64(nonce + ciphertext)>
+```json
+{
+  "previous": { "enable": true, "server": "corp.example:8080", "override": "*.corp;<local>" },
+  "ours": "127.0.0.1:51234"
+}
 ```
 
-- Algorithm: AES-256-GCM
-- Key: 32-byte random key at `Proxy0x/.key`, created on first use and reused.
-- Nonce: 12-byte random, prepended to ciphertext.
-- Empty strings are stored as-is (not encrypted).
-- Values without the `enc:` prefix are treated as plaintext (backward compatibility).
+An empty `server`/`override` means the value was absent and is deleted on restore.
 
-## MCP Server Data Sharing
+## Encryption
 
-The Wails app and the MCP server (`proxy0x-mcp.exe`) are separate processes that share the same data files:
+```
+enc:<base64(nonce || ciphertext)>      AES-256-GCM, 12-byte random nonce
+```
 
-- Both read/write `Proxy0x/proxies.json` using the same encryption key.
-- The MCP server loads proxies on startup and operates on its own in-memory pool.
-- No IPC between the two processes; changes made by one are visible to the other on next load.
+- Empty strings are stored as-is; values without `enc:` are read as plaintext (backward compatibility).
+- Key: 32 random bytes, stored as `dpapi:` + base64 of the DPAPI-protected key. If DPAPI is unavailable when the key is created, it falls back to raw bytes.
+- Migration: a 32-byte raw `.key` is copied to `.key.legacy` and rewritten in DPAPI form.
+- A `dpapi:` key that cannot be unprotected (e.g. profile moved to another machine) is an error, not replaced; the store then goes read-only. A `.key` that is neither `dpapi:` nor 32 bytes (corrupted) is also an error and is never replaced (restore from `.key.legacy`).
+- Implementation: `internal/crypto`. `pkg/proxycore` (MCP) uses the same package, so both processes share one key and one format.
+
+## Load and save rules
+
+- **Save** (app only): encrypt credentials (an encryption failure aborts the save), strip runtime fields, write `proxies.json.tmp`, keep `proxies.json.bak`, rename over `proxies.json`.
+- **Load**: a missing file is a normal first run. Invalid JSON or undecryptable credentials put the store in read-only mode (no save will overwrite the file; mutations return errors; `store-error` event).
+- **MCP server**: loads `proxies.json` at startup and never saves; add/remove tools return an error.
