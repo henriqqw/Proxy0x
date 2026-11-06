@@ -1,6 +1,23 @@
 package crypto
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestCorruptKeyIsAnErrorNotReplaced(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, ".key")
+	os.WriteFile(keyPath, []byte("garbage-not-a-key"), 0o600)
+
+	if _, err := NewStore(dir).Encrypt("x"); err == nil {
+		t.Fatal("a corrupt key must be an error")
+	}
+	if got, _ := os.ReadFile(keyPath); string(got) != "garbage-not-a-key" {
+		t.Fatal("corrupt key file was replaced: existing credentials would be lost for good")
+	}
+}
 
 func TestDPAPIRoundTrip(t *testing.T) {
 	enc, err := dpapiEncrypt([]byte("secret-key-material"))

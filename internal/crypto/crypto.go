@@ -91,6 +91,9 @@ func (s *Store) getOrCreateKey() ([]byte, error) {
 			}
 			return key, nil
 		}
+
+		// Unrecognized content: never replace it, or every stored credential is lost.
+		return nil, fmt.Errorf("unrecognized key file %s (not DPAPI, not 32 bytes); restore it from %s.legacy if available", path, path)
 	}
 
 	// Generate new key, store with DPAPI
