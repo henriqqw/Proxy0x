@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -239,20 +240,27 @@ func (a *App) CheckMCPHealth() MCPStatus {
 		status.HealthError = "MCP server binary not found"
 		return status
 	}
+	if err := checkMCPHealth(status.ExePath); err != nil {
+		status.HealthError = err.Error()
+		return status
+	}
+	status.HealthOK = true
+	return status
+}
 
-	cmd := exec.Command(status.ExePath)
+// checkMCPHealth starts the MCP server and expects a JSON-RPC initialize result.
+func checkMCPHealth(exePath string) error {
+	cmd := exec.Command(exePath)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		status.HealthError = fmt.Sprintf("pipe error: %v", err)
-		return status
+		return fmt.Errorf("pipe error: %v", err)
 	}
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = nil
 
 	if err := cmd.Start(); err != nil {
-		status.HealthError = fmt.Sprintf("failed to start: %v", err)
-		return status
+		return fmt.Errorf("failed to start: %v", err)
 	}
 
 	initReq := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"proxy0x-healthcheck","version":"1.0.0"}}}` + "\n"
@@ -273,8 +281,7 @@ func (a *App) CheckMCPHealth() MCPStatus {
 	}
 
 	if stdout.Len() == 0 {
-		status.HealthError = "no response from server"
-		return status
+		return errors.New("no response from server")
 	}
 
 	for _, line := range bytes.Split(stdout.Bytes(), []byte("\n")) {
@@ -285,12 +292,9 @@ func (a *App) CheckMCPHealth() MCPStatus {
 		var resp map[string]any
 		if json.Unmarshal(line, &resp) == nil {
 			if _, ok := resp["result"]; ok {
-				status.HealthOK = true
-				return status
+				return nil
 			}
 		}
 	}
-
-	status.HealthError = "invalid response from server"
-	return status
+	return errors.New("invalid response from server")
 }
