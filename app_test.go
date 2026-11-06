@@ -125,6 +125,44 @@ func addTestProxy(t *testing.T, a *App, host, port string) *ProxyEntry {
 	return a.proxies[p.ID] // the internal entry, not the UI copy
 }
 
+func TestSetProxyNameReturnsCopyAndRespectsReadOnly(t *testing.T) {
+	a, _ := newTestApp(t)
+	p := addTestProxy(t, a, "1.1.1.1", "80")
+
+	got, err := a.SetProxyName(p.ID, "home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == p || got.Password != "" || got.Name != "home" {
+		t.Fatalf("want a password-free copy with the new name, got %+v", got)
+	}
+
+	a.markStoreReadOnly(errors.New("corrupt store"))
+	if _, err := a.SetProxyName(p.ID, "x"); err == nil {
+		t.Fatal("SetProxyName must fail while the store is read-only")
+	}
+}
+
+func TestAddProxiesMultiFormatRespectsReadOnly(t *testing.T) {
+	a, _ := newTestApp(t)
+	a.markStoreReadOnly(errors.New("corrupt store"))
+	if _, err := a.AddProxiesMultiFormat("1.2.3.4:8080"); err == nil {
+		t.Fatal("import must fail while the store is read-only")
+	}
+}
+
+func TestBulkCheckRequiresValidExitIP(t *testing.T) {
+	a, _ := newTestApp(t)
+	up, host, port := startFakeUpstream(t)
+	addTestProxy(t, a, host, port)
+	up.set(429, `{"ip":"203.0.113.7"}`)
+
+	results := a.BulkCheckProxies()
+	if len(results) != 1 || results[0].Alive {
+		t.Fatalf("a 429 must not count as alive: %+v", results)
+	}
+}
+
 func TestPasswordNeverReachesTheUI(t *testing.T) {
 	a, _ := newTestApp(t)
 	var mu sync.Mutex

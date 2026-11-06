@@ -564,6 +564,9 @@ func (a *App) GetGroups() []string {
 }
 
 func (a *App) SetProxyName(id, name string) (*ProxyEntry, error) {
+	if err := a.checkStoreWritable(); err != nil {
+		return nil, err
+	}
 	a.mu.Lock()
 	p, ok := a.proxies[id]
 	if !ok {
@@ -572,9 +575,26 @@ func (a *App) SetProxyName(id, name string) (*ProxyEntry, error) {
 	}
 	p.Name = name
 	a.mu.Unlock()
-	a.saveProxies()
-	runtime.EventsEmit(a.ctx, "proxy-updated", p)
-	return p, nil
+	if err := a.saveProxies(); err != nil {
+		return a.view(p), err
+	}
+	a.emitProxy(p)
+	return a.view(p), nil
+}
+
+// copiesOf returns unlocked copies of the proxies matching keep, safe to use
+// for network checks without holding a.mu.
+func (a *App) copiesOf(keep func(*ProxyEntry) bool) []*ProxyEntry {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	var out []*ProxyEntry
+	for _, p := range a.proxies {
+		if keep(p) {
+			c := *p
+			out = append(out, &c)
+		}
+	}
+	return out
 }
 
 func (a *App) SetProxyGroup(id, group string) (*ProxyEntry, error) {
@@ -1282,14 +1302,7 @@ func (a *App) tryFailover(failedID string) {
 // --- Auto-Selection by Latency ---
 
 func (a *App) ConnectFastest() (*ProxyEntry, error) {
-	a.mu.RLock()
-	proxies := make([]*ProxyEntry, 0)
-	for _, p := range a.proxies {
-		if !p.Active {
-			proxies = append(proxies, p)
-		}
-	}
-	a.mu.RUnlock()
+	proxies := a.copiesOf(func(p *ProxyEntry) bool { return !p.Active })
 
 	if len(proxies) == 0 {
 		return nil, fmt.Errorf("no proxies available")
@@ -1306,15 +1319,11 @@ func (a *App) ConnectFastest() (*ProxyEntry, error) {
 		go func(p *ProxyEntry) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			client := a.getOrCreateClient(p)
-			start := time.Now()
-			resp, err := client.Get("https://api.ipify.org?format=json")
-			lat := time.Since(start).Milliseconds()
+			_, lat, err := verifyExitIP(a.getOrCreateClient(p))
 			if err != nil {
 				results <- result{p.ID, 999999}
 				return
 			}
-			resp.Body.Close()
 			results <- result{p.ID, lat}
 		}(p)
 	}
@@ -1340,12 +1349,7 @@ func (a *App) ConnectFastest() (*ProxyEntry, error) {
 // --- Bulk Proxy Checker ---
 
 func (a *App) BulkCheckProxies() []BulkCheckResult {
-	a.mu.RLock()
-	proxies := make([]*ProxyEntry, 0, len(a.proxies))
-	for _, p := range a.proxies {
-		proxies = append(proxies, p)
-	}
-	a.mu.RUnlock()
+	proxies := a.copiesOf(func(*ProxyEntry) bool { return true })
 
 	resultsCh := make(chan BulkCheckResult, len(proxies))
 	sem := make(chan struct{}, 10)
@@ -1363,24 +1367,18 @@ func (a *App) BulkCheckProxies() []BulkCheckResult {
 			r := BulkCheckResult{ID: p.ID, Host: p.Host + ":" + p.Port}
 			client := a.getOrCreateClient(p)
 
-			start := time.Now()
-			resp, err := client.Get("https://api.ipify.org?format=json")
-			r.Latency = time.Since(start).Milliseconds()
-
+			ip, latency, err := verifyExitIP(client)
+			r.Latency = latency
 			if err != nil {
 				r.Error = err.Error()
 				resultsCh <- r
 				return
 			}
-			defer resp.Body.Close()
-			body, _ := io.ReadAll(resp.Body)
-			var ipRes struct{ IP string `json:"ip"` }
-			json.Unmarshal(body, &ipRes)
 
 			r.Alive = true
-			r.ExitIP = ipRes.IP
+			r.ExitIP = ip
 
-			if geo := a.fetchGeoInfo(client, ipRes.IP); geo != nil {
+			if geo := a.fetchGeoInfo(client, ip); geo != nil {
 				r.Country = geo.Country
 				r.CountryCode = geo.CountryCode
 			}
@@ -1396,8 +1394,10 @@ func (a *App) BulkCheckProxies() []BulkCheckResult {
 			}
 
 			a.mu.Lock()
-			p.Latency = r.Latency
-			p.LastCheck = time.Now().Format(time.RFC3339)
+			if live, ok := a.proxies[p.ID]; ok {
+				live.Latency = r.Latency
+				live.LastCheck = time.Now().Format(time.RFC3339)
+			}
 			a.mu.Unlock()
 
 			resultsCh <- r
@@ -1409,7 +1409,7 @@ func (a *App) BulkCheckProxies() []BulkCheckResult {
 	var results []BulkCheckResult
 	for r := range resultsCh {
 		results = append(results, r)
-		runtime.EventsEmit(a.ctx, "bulk-check-progress", r)
+		a.emitEvent("bulk-check-progress", r)
 	}
 
 	a.addLog("bulk-check", "", "", fmt.Sprintf("checked %d proxies", len(results)))
@@ -1421,34 +1421,17 @@ func (a *App) BulkCheckProxies() []BulkCheckResult {
 func (a *App) CheckDNSLeak() DNSLeakResult {
 	result := DNSLeakResult{}
 
-	a.mu.RLock()
-	var activeProxy *ProxyEntry
-	for _, p := range a.proxies {
-		if p.Active {
-			activeProxy = p
-			break
-		}
-	}
-	a.mu.RUnlock()
-
-	if activeProxy == nil {
+	active := a.copiesOf(func(p *ProxyEntry) bool { return p.Active })
+	if len(active) == 0 {
 		result.Leaked = true
 		return result
 	}
 
-	client := a.getOrCreateClient(activeProxy)
-	resp, err := client.Get("https://api.ipify.org?format=text")
-	if err == nil {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		result.ProxyIP = strings.TrimSpace(string(body))
+	if ip, _, err := verifyExitIP(a.getOrCreateClient(active[0])); err == nil {
+		result.ProxyIP = ip
 	}
-
-	directResp, err := http.Get("https://api.ipify.org?format=text")
-	if err == nil {
-		body, _ := io.ReadAll(directResp.Body)
-		directResp.Body.Close()
-		result.DNSIP = strings.TrimSpace(string(body))
+	if ip, err := a.GetMyIP(); err == nil {
+		result.DNSIP = strings.TrimSpace(ip)
 	}
 
 	if result.ProxyIP != "" && result.DNSIP != "" {
@@ -1474,6 +1457,9 @@ CheckNetIsolation.exe LoopbackExempt -a -n="Microsoft.MicrosoftEdge.Stable_8weky
 // --- Import Formats ---
 
 func (a *App) AddProxiesMultiFormat(raw string) ([]*ProxyEntry, error) {
+	if err := a.checkStoreWritable(); err != nil {
+		return nil, err
+	}
 	lines := strings.Split(raw, "\n")
 	var added []*ProxyEntry
 
@@ -1504,12 +1490,17 @@ func (a *App) AddProxiesMultiFormat(raw string) ([]*ProxyEntry, error) {
 		added = append(added, p)
 	}
 
+	var err error
 	if len(added) > 0 {
 		a.addLog("batch-added", "", "", fmt.Sprintf("%d proxies (multi-format)", len(added)))
-		a.saveProxies()
-		runtime.EventsEmit(a.ctx, "proxies-changed")
+		err = a.saveProxies()
+		a.emitEvent("proxies-changed")
 	}
-	return added, nil
+	views := make([]*ProxyEntry, len(added))
+	for i, p := range added {
+		views[i] = a.view(p)
+	}
+	return views, err
 }
 
 func parseProxyURI(raw string) (*ProxyEntry, error) {
