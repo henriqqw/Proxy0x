@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"sync"
@@ -255,6 +254,10 @@ func (ls *LocalServer) handleHTTP(clientConn net.Conn, req *http.Request) {
 	var upConn net.Conn
 	var err error
 
+	// One request per client connection: no keep-alive through the local proxy.
+	req.Close = true
+	req.Header.Del("Proxy-Connection")
+
 	if proto == "socks5" {
 		host := req.URL.Host
 		if _, _, splitErr := net.SplitHostPort(host); splitErr != nil {
@@ -291,5 +294,12 @@ func (ls *LocalServer) handleHTTP(clientConn net.Conn, req *http.Request) {
 	}
 
 	upConn.SetReadDeadline(time.Now().Add(5 * time.Minute))
-	io.Copy(clientConn, upConn)
+	resp, err := http.ReadResponse(bufio.NewReader(upConn), req)
+	if err != nil {
+		fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
+		return
+	}
+	defer resp.Body.Close()
+	resp.Close = true
+	resp.Write(clientConn)
 }
