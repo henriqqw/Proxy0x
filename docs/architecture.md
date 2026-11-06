@@ -139,7 +139,7 @@ Claude Desktop
     → JSON-RPC initialize handshake
     → tool call (e.g. proxy_fetch)
       → MCPServer handler
-        → Pool.BestProxy() (score-based selection)
+        → Pool.ActiveProxy() (the single connected proxy)
         → SSRF validation on target URL
         → HTTP request through proxy
         → response back via JSON-RPC

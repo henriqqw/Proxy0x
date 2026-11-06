@@ -1,14 +1,8 @@
 # Business Rules
 
-## Proxy Scoring
+## Proxy Selection (MCP)
 
-Each proxy tracks `Successes` and `Failures` counters, updated on every proxied request.
-
-```
-Score() = Successes * 2 - Failures
-```
-
-`BestProxy()` selects the active, connected proxy with the highest score. Ties are broken by iteration order (map traversal). A pool with no active proxies returns an error.
+Only one proxy is active at a time, so the MCP server's `ActiveProxy()` returns the connected proxy, or an error when none is connected. There is no scoring.
 
 ## Session Rotation
 

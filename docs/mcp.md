@@ -25,7 +25,7 @@ Both the Wails desktop app and the MCP server read and write the same AES-256-GC
 
 | Tool | Parameters | Description |
 |------|------------|-------------|
-| `proxy_fetch` | `url` (required), `method`, `headers`, `body` | Fetch a URL through the best proxy. SSRF-validated. Body capped at 100 KB. |
+| `proxy_fetch` | `url` (required), `method`, `body`, `proxy_id` | Fetch a URL through the active proxy (or `proxy_id`). SSRF-validated. Body capped at 100 KB. |
 | `proxy_list` | — | List all proxies. Credentials are stripped from output. |
 | `proxy_status` | — | Pool stats: total, active, connected counts. |
 | `proxy_connect` | `id` | Connect a proxy by ID. Verifies IP via api.ipify.org. |
@@ -39,13 +39,7 @@ The MCP server never writes `proxies.json`. The desktop app owns the file; two p
 
 ### Proxy selection
 
-`proxy_fetch` uses `BestProxy()` which selects the active proxy with the highest score:
-
-```
-score = successes × 2 − failures
-```
-
-Each successful fetch increments `successes`; each failure increments `failures`.
+Only one proxy can be active at a time (connecting one disconnects the other). `proxy_fetch` uses `ActiveProxy()` — the connected proxy — unless `proxy_id` is given. There is no scoring.
 
 ### SSRF protection
 
@@ -70,8 +64,8 @@ Every URL passed to `proxy_fetch` is validated before the request is made:
 
 | Prompt | Arguments | Description |
 |--------|-----------|-------------|
-| `scrape_workflow` | `target_url`, `data_needed` | Guided web scraping workflow: connect → fetch → extract → rotate |
-| `geo_check` | `target_url`, `countries` | Geographic access verification: test URL from proxies in different locations |
+| `scrape_workflow` | `target_url` (required), `data_type` | Guided web scraping workflow: connect → fetch → extract → rotate |
+| `geo_check` | `url` (required), `country` | Geographic access verification: test the URL from a proxy in the given country |
 
 ## One-click integration
 
