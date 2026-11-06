@@ -230,7 +230,6 @@ func (p *Pool) Connect(id string) (*ProxyEntry, error) {
 		proxy.CurrentIP = ""
 		proxy.Location = nil
 		proxy.LastCheck = time.Now().Format(time.RFC3339)
-		proxy.Failures++
 		p.mu.Unlock()
 		p.AddLog("connect-failed", id, proxy.Address(), err.Error())
 		return proxy, fmt.Errorf("connection failed: %v", err)
@@ -253,7 +252,6 @@ func (p *Pool) Connect(id string) (*ProxyEntry, error) {
 	proxy.Active = true
 	proxy.LastCheck = time.Now().Format(time.RFC3339)
 	proxy.ConnectedAt = time.Now().Format(time.RFC3339)
-	proxy.Successes++
 	p.mu.Unlock()
 
 	p.AddLog("connected", id, proxy.Address(), fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
@@ -306,7 +304,6 @@ func (p *Pool) Rotate(id string) (*ProxyEntry, error) {
 	if err != nil {
 		p.mu.Lock()
 		proxy.Status = StatusError
-		proxy.Failures++
 		p.mu.Unlock()
 		p.AddLog("rotate-failed", id, proxy.Address(), err.Error())
 		return proxy, fmt.Errorf("rotation failed: %v", err)
@@ -328,7 +325,6 @@ func (p *Pool) Rotate(id string) (*ProxyEntry, error) {
 	proxy.Location = geo
 	proxy.Active = true
 	proxy.LastCheck = time.Now().Format(time.RFC3339)
-	proxy.Successes++
 	p.mu.Unlock()
 
 	p.AddLog("rotated", id, proxy.Address(), fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
@@ -353,7 +349,6 @@ func (p *Pool) CheckHealth(id string) (*ProxyEntry, error) {
 		p.mu.Lock()
 		proxy.Status = StatusError
 		proxy.LastCheck = time.Now().Format(time.RFC3339)
-		proxy.Failures++
 		p.mu.Unlock()
 		p.AddLog("health-failed", id, proxy.Address(), err.Error())
 		return proxy, nil
@@ -369,7 +364,6 @@ func (p *Pool) CheckHealth(id string) (*ProxyEntry, error) {
 	p.mu.Lock()
 	proxy.Latency = latency
 	proxy.LastCheck = time.Now().Format(time.RFC3339)
-	proxy.Successes++
 	if ipResult.IP != "" && ipResult.IP != proxy.CurrentIP {
 		proxy.CurrentIP = ipResult.IP
 		geo := FetchGeoInfo(client, ipResult.IP)
@@ -410,50 +404,22 @@ func (p *Pool) Stats() PoolStats {
 	return stats
 }
 
-func (p *Pool) BestProxy() (*ProxyEntry, error) {
+// ActiveProxy returns the connected proxy; only one can be active at a time.
+func (p *Pool) ActiveProxy() (*ProxyEntry, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-
-	var best *ProxyEntry
-	bestScore := -1 << 31
-
 	for _, e := range p.proxies {
-		if !e.Active || e.Status != StatusConnected {
-			continue
-		}
-		score := e.Score()
-		if score > bestScore || (score == bestScore && best != nil && e.Latency < best.Latency) {
-			best = e
-			bestScore = score
+		if e.Active && e.Status == StatusConnected {
+			return e, nil
 		}
 	}
-
-	if best == nil {
-		return nil, fmt.Errorf("no active proxy available")
-	}
-	return best, nil
+	return nil, fmt.Errorf("no active proxy available")
 }
 
 func (p *Pool) ClientFor(proxy *ProxyEntry) *http.Client {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.getOrCreateClient(proxy)
-}
-
-func (p *Pool) RecordSuccess(id string) {
-	p.mu.Lock()
-	if e, ok := p.proxies[id]; ok {
-		e.Successes++
-	}
-	p.mu.Unlock()
-}
-
-func (p *Pool) RecordFailure(id string) {
-	p.mu.Lock()
-	if e, ok := p.proxies[id]; ok {
-		e.Failures++
-	}
-	p.mu.Unlock()
 }
 
 func FetchGeoInfo(client *http.Client, ip string) *GeoInfo {

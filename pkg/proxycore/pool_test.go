@@ -134,25 +134,27 @@ func TestPoolStats(t *testing.T) {
 	}
 }
 
-func TestPoolBestProxyNoActive(t *testing.T) {
+func TestPoolActiveProxyNoActive(t *testing.T) {
 	pool := newTestPool(t)
 	pool.Add("1.2.3.4:8080")
 
-	_, err := pool.BestProxy()
+	_, err := pool.ActiveProxy()
 	if err == nil {
-		t.Error("BestProxy should error when no proxy is active")
+		t.Error("ActiveProxy should error when no proxy is active")
 	}
 }
 
-func TestPoolScore(t *testing.T) {
-	e := &ProxyEntry{Successes: 10, Failures: 3}
-	if e.Score() != 17 {
-		t.Errorf("Score() = %d, want 17", e.Score())
-	}
+func TestPoolActiveProxyReturnsConnected(t *testing.T) {
+	pool := newTestPool(t)
+	pool.Add("1.2.3.4:8080")
+	e, _ := pool.Add("5.6.7.8:3128")
+	pool.mu.Lock()
+	e.Active, e.Status = true, StatusConnected
+	pool.mu.Unlock()
 
-	e2 := &ProxyEntry{Successes: 0, Failures: 5}
-	if e2.Score() != -5 {
-		t.Errorf("Score() = %d, want -5", e2.Score())
+	got, err := pool.ActiveProxy()
+	if err != nil || got.ID != e.ID {
+		t.Fatalf("ActiveProxy = %v, %v; want %s", got, err, e.ID)
 	}
 }
 

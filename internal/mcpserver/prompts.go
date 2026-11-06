@@ -48,7 +48,7 @@ Workflow:
 6. For pagination: rotate between requests to avoid rate-limits
 7. proxy_health — verify proxies stay healthy
 
-The proxy_fetch tool auto-selects the best proxy by score.`, targetURL, dataType, targetURL)
+The proxy_fetch tool uses the active (connected) proxy.`, targetURL, dataType, targetURL)
 
 	return mcp.NewGetPromptResult(
 		"Web scraping with Proxy0x rotating proxies",

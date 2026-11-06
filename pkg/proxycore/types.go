@@ -40,12 +40,6 @@ type ProxyEntry struct {
 	Order       int         `json:"order"`
 	ConnectedAt string      `json:"connectedAt"`
 	TotalUptime int64       `json:"totalUptime"`
-	Successes   int         `json:"successes,omitempty"`
-	Failures    int         `json:"failures,omitempty"`
-}
-
-func (p *ProxyEntry) Score() int {
-	return p.Successes*2 - p.Failures
 }
 
 func (p *ProxyEntry) Address() string {

@@ -13,7 +13,7 @@ import (
 func (s *MCPServer) registerTools() {
 	s.mcp.AddTool(
 		mcp.NewTool("proxy_fetch",
-			mcp.WithDescription("Fetch a URL through the rotating proxy pool. Selects the best proxy by score, validates against SSRF, and returns the response with status, headers and body."),
+			mcp.WithDescription("Fetch a URL through the active proxy (or proxy_id). Validates the URL against SSRF, and returns the response with status, headers and body."),
 			mcp.WithString("url", mcp.Required(), mcp.Description("Target URL (http/https only)")),
 			mcp.WithString("method", mcp.Description("HTTP method"), mcp.Enum("GET", "POST", "PUT", "DELETE", "HEAD", "PATCH")),
 			mcp.WithString("body", mcp.Description("Request body for POST/PUT/PATCH")),
@@ -116,7 +116,6 @@ func (s *MCPServer) handleProxyList(_ context.Context, _ mcp.CallToolRequest) (*
 		Location  *proxycore.GeoInfo    `json:"location,omitempty"`
 		Latency   int64                 `json:"latencyMs"`
 		Active    bool                  `json:"active"`
-		Score     int                   `json:"score"`
 		LastCheck string                `json:"lastCheck,omitempty"`
 	}
 
@@ -133,7 +132,6 @@ func (s *MCPServer) handleProxyList(_ context.Context, _ mcp.CallToolRequest) (*
 			Location:  p.Location,
 			Latency:   p.Latency,
 			Active:    p.Active,
-			Score:     p.Score(),
 			LastCheck: p.LastCheck,
 		}
 	}
@@ -160,11 +158,11 @@ func (s *MCPServer) handleProxyConnect(ctx context.Context, req mcp.CallToolRequ
 	}
 
 	data, _ := json.MarshalIndent(map[string]interface{}{
-		"id":       proxy.ID,
-		"status":   proxy.Status,
-		"ip":       proxy.CurrentIP,
+		"id":        proxy.ID,
+		"status":    proxy.Status,
+		"ip":        proxy.CurrentIP,
 		"latencyMs": proxy.Latency,
-		"location": proxy.Location,
+		"location":  proxy.Location,
 	}, "", "  ")
 	return mcp.NewToolResultText(string(data)), nil
 }
@@ -195,11 +193,11 @@ func (s *MCPServer) handleProxyRotate(_ context.Context, req mcp.CallToolRequest
 	}
 
 	data, _ := json.MarshalIndent(map[string]interface{}{
-		"id":       proxy.ID,
-		"status":   proxy.Status,
-		"ip":       proxy.CurrentIP,
+		"id":        proxy.ID,
+		"status":    proxy.Status,
+		"ip":        proxy.CurrentIP,
 		"latencyMs": proxy.Latency,
-		"location": proxy.Location,
+		"location":  proxy.Location,
 	}, "", "  ")
 	return mcp.NewToolResultText(string(data)), nil
 }

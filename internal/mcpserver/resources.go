@@ -58,7 +58,6 @@ func (s *MCPServer) handleResourcePool(_ context.Context, _ mcp.ReadResourceRequ
 		CurrentIP string `json:"currentIp,omitempty"`
 		Latency   int64  `json:"latencyMs"`
 		Active    bool   `json:"active"`
-		Score     int    `json:"score"`
 	}
 
 	safe := make([]safeEntry, len(proxies))
@@ -73,7 +72,6 @@ func (s *MCPServer) handleResourcePool(_ context.Context, _ mcp.ReadResourceRequ
 			CurrentIP: p.CurrentIP,
 			Latency:   p.Latency,
 			Active:    p.Active,
-			Score:     p.Score(),
 		}
 	}
 

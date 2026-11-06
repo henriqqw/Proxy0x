@@ -40,7 +40,7 @@ func (f *Fetcher) Fetch(ctx context.Context, targetURL, method string, headers m
 			return nil, fmt.Errorf("proxy %s not found or not active", proxyID)
 		}
 	} else {
-		proxy, err = f.pool.BestProxy()
+		proxy, err = f.pool.ActiveProxy()
 		if err != nil {
 			return nil, err
 		}
@@ -80,7 +80,6 @@ func (f *Fetcher) Fetch(ctx context.Context, targetURL, method string, headers m
 	latency := time.Since(start).Milliseconds()
 
 	if err != nil {
-		f.pool.RecordFailure(proxy.ID)
 		f.pool.AddLog("fetch-failed", proxy.ID, proxy.Address(), err.Error())
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -92,8 +91,6 @@ func (f *Fetcher) Fetch(ctx context.Context, targetURL, method string, headers m
 	if truncated {
 		respBody = respBody[:MaxResponseBody]
 	}
-
-	f.pool.RecordSuccess(proxy.ID)
 
 	respHeaders := make(map[string]string)
 	for k := range resp.Header {
