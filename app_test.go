@@ -218,6 +218,23 @@ func TestHealthCheckFailsOnNon200(t *testing.T) {
 	}
 }
 
+func TestHealthCheckRecoversStatusAfterTransientFailure(t *testing.T) {
+	a, _ := newTestApp(t)
+	up, host, port := startFakeUpstream(t)
+	p := addTestProxy(t, a, host, port)
+	if _, err := a.ConnectProxy(p.ID); err != nil {
+		t.Fatal(err)
+	}
+	up.set(503, ``)
+	a.CheckHealth(p.ID)
+	up.set(200, `{"ip":"203.0.113.7"}`)
+	a.CheckHealth(p.ID)
+
+	if p.Status != StatusConnected {
+		t.Fatalf("status=%s after a successful check, want connected", p.Status)
+	}
+}
+
 func TestHealthCheckDoesNotHoldLockDuringGeoLookup(t *testing.T) {
 	a, _ := newTestApp(t)
 	up, host, port := startFakeUpstream(t)

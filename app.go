@@ -857,6 +857,9 @@ func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
 	}
 
 	a.mu.Lock()
+	if p.Active {
+		p.Status = StatusConnected
+	}
 	p.Latency = latency
 	p.LastCheck = time.Now().Format(time.RFC3339)
 	if ipChanged {
