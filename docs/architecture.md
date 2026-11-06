@@ -115,7 +115,6 @@ Only the desktop app writes `proxies.json`. The MCP server loads it at startup a
 | `ipwho.is` | IP geolocation |
 | `speed.cloudflare.com` | Speed test (100 KB) |
 | — | Country flags are bundled (`country-flag-icons`), no remote request |
-| `fonts.googleapis.com` | Inter font (frontend) |
 
 ## Build and release
 

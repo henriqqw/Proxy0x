@@ -131,7 +131,7 @@ Each proxy has an optional display `Name` (`SetProxyName`); the card shows it in
 
 - Each proxy has an optional `Group` string tag (`SetProxyGroup`).
 - Groups are derived dynamically from the proxy list (no separate group store).
-- The UI filters the list by group. `ConnectGroup` / `DisconnectGroup` bindings exist but are not used by the UI (and connecting a group conflicts with the one-active-proxy rule).
+- The UI filters the list by group. If the selected group disappears (its last proxy removed or regrouped) the filter resets to all proxies. There are no group-wide connect/disconnect operations: only one proxy can be active.
 
 ## Speed Test
 

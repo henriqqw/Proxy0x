@@ -74,6 +74,16 @@ Nenhuma regressão encontrada. Nenhum item precisou ser revertido.
 - **Import:** `socks4://` é tratado como SOCKS5.
 - **Integração Codex:** escreve em `~/.codex/config.json`, mas o Codex usa `config.toml` (Hipótese).
 
+## Rodada pós-v1.1.0: frontend, código morto e kill switch
+
+| Item | Commit | Verificação | Observação |
+|---|---|---|---|
+| DEAD-01 | `8695d67` | build, testes, `tsc`, bindings regenerados | Removidos `ConnectGroup`, `DisconnectGroup`, `RestartProxy`, `Get/SetHealthCheckInterval`, `QuitApp`, `ShowWindow` e `ContextMenu.tsx`. `CheckHealth` agora é interno. **Desvio da decisão D5:** o histórico de logs (`GetConnectionLog`, `log-entry`) foi mantido, porque o roadmap tem "Notification History" como consumidor concreto. |
+| `GetVersion`, `GetStoreError` | `f7e2c99` | `TestGetStoreErrorReportsReadOnlyStore` | O About mostrava `v1.0.0` fixo. O `store-error` dispara antes do webview escutar, então a UI consulta o estado ao montar. O CI injeta a versão com `-ldflags -X main.appVersion`. |
+| PRIV-01 | `4a2245c` | `vite build` + `vite preview` no navegador: nenhuma violação de CSP, só pedidos ao próprio origin | Fonte do sistema no lugar do Google Fonts (as bandeiras já eram locais pelo dev2). CSP estrita só no build de produção. **Pendente:** confirmar no app instalado que o runtime do Wails não é bloqueado. |
+| FE-01…FE-07, SEC-02 (UI) | `17b9a85` | `tsc` | Erros visíveis, reset do filtro de grupo, uptime ao vivo, confirmação de exclusão, alerta e limpeza do clipboard no export, intervalo que só grava no blur/Enter, `BrowserOpenURL`, 20 chaves × 16 idiomas, `aria-label`, tokens de cor, máscara IPv6. Um commit só, porque as mudanças se entrelaçam nos mesmos arquivos (exceção à regra "um problema por commit"). Sem harness de testes de frontend: **verificação manual pendente**. |
+| Kill switch | `e2b81ff` (dev2), merge `c870e74` | testes de `internal/killswitch` (dev2) | Feito pelo dev2: política padrão de saída `Block` com regras de permissão (app, loopback, Dnscache), política anterior salva e restaurada, elevação via `ShellExecuteExW` com espera e código de saída (sem arquivo temporário), limpeza na desinstalação. **Não testado contra o firewall real.** |
+
 ## Verificação manual pendente (não feita nesta fase)
 
 1. `wails dev` na branch: conectar, rotacionar (a porta do proxy local deve continuar a mesma), parar (deve ser instantâneo) e remover o proxy ativo.

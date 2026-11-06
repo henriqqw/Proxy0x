@@ -305,7 +305,6 @@ Proxy0x/
     │   ├── i18n/                # translations.ts (16 languages), LanguageContext
     │   └── components/          # TitleBar, ProxyCard, ProxyForm, SettingsPage,
     │                            # StatusBadge, MyIPBadge, FlagIcon, EmptyState
-    │                            # (ContextMenu.tsx exists but is not mounted)
     ├── wailsjs/                 # Auto-generated Go↔TS bindings
     └── tailwind.config.js       # Theme tokens
 ```
@@ -336,16 +335,14 @@ Proxy0x/
 | [api.ipify.org](https://www.ipify.org/) | Direct IP for "My IP" and the exit-IP check | Real IP (by design) |
 | [ipwho.is](https://ipwho.is/) | Geolocation for the app and the MCP server, sent through the proxy | Proxy IP |
 | [speed.cloudflare.com](https://speed.cloudflare.com/) | Speed test download sample, through the proxy | Proxy IP |
-| Google Fonts | Inter font loaded by the UI | Real IP when no proxy is connected |
 
-Country flags are bundled with the app (no remote requests). All requests use HTTPS.
+Country flags and fonts are bundled or system-provided (no remote UI requests; production builds enforce this with a Content-Security-Policy). All requests use HTTPS.
 
 ## Known limitations
 
 - **System proxy scope:** only applications that honor the Windows (WinINET) system proxy are routed. UDP traffic (e.g. WebRTC, QUIC) and apps with their own network stack are not covered and can reveal your real IP.
 - **Kill switch scope:** programs that already have their own outbound allow rule in Windows Firewall (Windows services, Store apps, some games and launchers) keep network access, and DNS lookups are allowed. If Proxy0x crashes while the switch is on, the block stays until you turn it off in the app (fail closed). Details: [docs/security.md](docs/security.md#kill-switch-internalkillswitch).
 - **"DNS leak test"** compares the exit IP through the proxy with your direct IP. It is an exit-IP check, not a DNS resolver test.
-- **Remote resources:** the UI loads Google Fonts, which reveals your IP to Google when no proxy is connected.
 - **Single active proxy:** connecting one proxy disconnects the previous one.
 - Windows x64 only.
 

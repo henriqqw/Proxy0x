@@ -38,7 +38,7 @@ Runtime fields (`status`, `active`, `currentIp`, `latency`) are reset on save an
 | Language | `language` | `en` |
 | Theme | `theme` | `dark` |
 | AutoRotateInterval | `autoRotateInterval` | `0` (off), seconds |
-| HealthCheckInterval | `healthCheckInterval` | `180`, seconds (min 60 via setter) |
+| HealthCheckInterval | `healthCheckInterval` | `180`, seconds (no UI or binding; edit config.json to change) |
 | KillSwitch | `killSwitch` | `false` |
 | AutoFailover | `autoFailover` | `false` |
 

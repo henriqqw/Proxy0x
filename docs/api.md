@@ -25,8 +25,6 @@ Every exported method on `App` (`app.go`, `mcp_integration.go`) is bound to the 
 |--------|-----------|-------------|
 | `GetGroups` | `() []string` | Sorted distinct group names. |
 | `SetProxyGroup` | `(id, group string) (*ProxyEntry, error)` | Empty string removes the group. |
-| `ConnectGroup` | `(group string) error` | Connects each inactive proxy of the group in sequence. Only one proxy can be active, so the last successful one wins. Not used by the UI. |
-| `DisconnectGroup` | `(group string) error` | Disconnects active proxies of the group. Not used by the UI. |
 
 ## Connection
 
@@ -35,19 +33,19 @@ Every exported method on `App` (`app.go`, `mcp_integration.go`) is bound to the 
 | `ConnectProxy` | `(id string) (*ProxyEntry, error)` | Disconnects the active proxy, verifies the exit IP (HTTP 200 + valid IP), fetches geolocation, starts the local server and points the system proxy at it. Any failure → `status=error`. |
 | `DisconnectProxy` | `(id string) (*ProxyEntry, error)` | Stops the local server (returns in < 1 s), restores the user's system proxy, accumulates `totalUptime`. |
 | `RotateProxy` | `(id string) (*ProxyEntry, error)` | Verifies a candidate session first; on success switches session and updates the local server in place (same port, open connections kept). On failure the previous session and status are kept and an error is returned. |
-| `RestartProxy` | `(id string) (*ProxyEntry, error)` | Disconnect + connect. Not used by the UI. |
 | `ConnectFastest` | `() (*ProxyEntry, error)` | Verifies every inactive proxy (10 in parallel), connects the one with the lowest latency. |
 
 ## Monitoring & tools
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `CheckHealth` | `(id string) (*ProxyEntry, error)` | Exit IP check for an active proxy. Failure → `error` + `proxy-dropped` (and auto-failover if enabled); success restores `connected`. Also run by the health loop. |
 | `BenchmarkProxy` | `(id string) (map[string]interface{}, error)` | `connectMs` (exit IP check) and `downloadMs`/`downloadMbps` (100 KB from speed.cloudflare.com). |
 | `BulkCheckProxies` | `() []BulkCheckResult` | Checks all proxies (10 in parallel); emits `bulk-check-progress` per result; updates `latency`/`lastCheck`. |
 | `CheckDNSLeak` | `() DNSLeakResult` | Compares the active proxy's exit IP with the direct public IP (`GetMyIP`). `leaked=true` when they match or when no proxy is active. This detects "traffic not going through the proxy", not DNS-resolver leaks. |
 | `GetMyIP` | `() (string, error)` | Direct public IP via api.ipify.org, 10 s timeout. |
-| `GetConnectionLog` | `() []LogEntry` | Last 200 log entries, newest first. Not used by the UI. |
+| `GetConnectionLog` | `() []LogEntry` | Last 200 log entries, newest first. Kept for the planned notification history; not used by the UI yet. |
+| `GetStoreError` | `() string` | Non-empty when `proxies.json` could not be loaded (store read-only). The UI calls it on mount because `store-error` fires before the webview listens. |
+| `GetVersion` | `() string` | Build version (`main.appVersion`, set by CI with `-ldflags -X`); `dev` for local builds. |
 
 ## Settings & security
 
@@ -56,7 +54,6 @@ Every exported method on `App` (`app.go`, `mcp_integration.go`) is bound to the 
 | `GetLanguage` / `SetLanguage` | `() string` / `(lang string)` | UI language; emits `language-changed`. |
 | `GetTheme` / `SetTheme` | `() string` / `(theme string)` | `dark`/`light`; emits `theme-changed`. |
 | `GetAutoRotateInterval` / `SetAutoRotateInterval` | `() int` / `(seconds int)` | 0 disables; emits `config-changed`. |
-| `GetHealthCheckInterval` / `SetHealthCheckInterval` | `() int` / `(seconds int)` | Min 60, default 180; emits `config-changed`. Not exposed in the UI. |
 | `GetKillSwitch` | `() bool` | Live firewall state: whether the `Proxy0x-KillSwitch-AllowApp` rule exists. |
 | `SetKillSwitch` | `(enabled bool) error` | Enables (outbound default block + allow rules, previous policy saved) or disables (policy restored, rules removed) through one elevated (UAC) command, waits for it, then saves the flag. Errors on a declined UAC prompt or a failed `netsh`. Disabled again on app shutdown. |
 | `GetAutoFailover` / `SetAutoFailover` | `() bool` / `(enabled bool)` | When a connected proxy drops, connect the inactive proxy with the lowest known latency. |
@@ -79,9 +76,7 @@ Client IDs and config files: `claude-desktop` (`%AppData%\Claude\claude_desktop_
 |--------|-----------|-------------|
 | `MinimizeWindow` | `()` | Minimize. |
 | `CloseWindow` | `()` | Hide to tray. |
-| `ShowWindow` | `()` | Restore from tray. Not used by the UI (the tray calls the runtime directly). |
 | `ToggleMaximize` | `()` | Maximize/restore. |
-| `QuitApp` | `()` | Stop local server, restore system proxy, quit. Not used by the UI. |
 
 ## Events (Go → frontend)
 
@@ -94,7 +89,7 @@ Client IDs and config files: `claude-desktop` (`%AppData%\Claude\claude_desktop_
 | `bulk-check-progress` | `BulkCheckResult` | Each result of `BulkCheckProxies`. |
 | `language-changed` | `string` | `SetLanguage`. |
 | `theme-changed` | `string` | `SetTheme`. |
-| `config-changed` | `Config` | `SetAutoRotateInterval`, `SetHealthCheckInterval`. |
+| `config-changed` | `Config` | `SetAutoRotateInterval`. |
 | `log-entry` | `LogEntry` | Every log line. No listener in the UI. |
 
 ## Types
