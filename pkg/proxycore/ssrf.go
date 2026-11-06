@@ -36,6 +36,12 @@ func init() {
 		"::1/128",
 		"fc00::/7",
 		"fe80::/10",
+		"100.64.0.0/10", // carrier-grade NAT
+		"198.18.0.0/15", // benchmarking
+		"224.0.0.0/4",   // multicast
+		"240.0.0.0/4",   // reserved
+		"64:ff9b::/96",  // NAT64, embeds IPv4
+		"2002::/16",     // 6to4, embeds IPv4
 	}
 	for _, cidr := range cidrs {
 		_, ipnet, err := net.ParseCIDR(cidr)
@@ -60,7 +66,7 @@ func ValidateURL(rawURL string) error {
 		return fmt.Errorf("empty hostname")
 	}
 
-	lower := strings.ToLower(host)
+	lower := strings.TrimSuffix(strings.ToLower(host), ".")
 	if blockedHostnames[lower] {
 		return fmt.Errorf("hostname %q is blocked", host)
 	}
@@ -68,20 +74,19 @@ func ValidateURL(rawURL string) error {
 		return fmt.Errorf("hostname %q is blocked (private suffix)", host)
 	}
 
-	ip := net.ParseIP(host)
-	if ip != nil {
+	if ip := net.ParseIP(lower); ip != nil {
 		return validateIP(ip)
 	}
 
-	ips, err := lookupIP(host)
-	if err == nil {
-		for _, resolved := range ips {
-			if err := validateIP(resolved); err != nil {
-				return fmt.Errorf("hostname %q resolves to blocked IP: %w", host, err)
-			}
+	ips, err := lookupIP(lower)
+	if err != nil {
+		return fmt.Errorf("cannot resolve %q, refusing: %w", host, err)
+	}
+	for _, resolved := range ips {
+		if err := validateIP(resolved); err != nil {
+			return fmt.Errorf("hostname %q resolves to blocked IP: %w", host, err)
 		}
 	}
-
 	return nil
 }
 

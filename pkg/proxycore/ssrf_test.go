@@ -1,11 +1,64 @@
 package proxycore
 
 import (
+	"errors"
 	"net"
 	"testing"
 )
 
+func TestValidateURLFailsClosed(t *testing.T) {
+	old := lookupIP
+	lookupIP = func(host string) ([]net.IP, error) {
+		switch host {
+		case "public.example":
+			return []net.IP{net.ParseIP("93.184.216.34")}, nil
+		case "rebind.example":
+			return []net.IP{net.ParseIP("10.0.0.5")}, nil
+		default:
+			return nil, errors.New("no such host")
+		}
+	}
+	t.Cleanup(func() { lookupIP = old })
+
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{"public host", "http://public.example/", false},
+		{"resolves to private", "http://rebind.example/", true},
+		{"unresolvable host", "http://nx.example/", true},
+		{"trailing dot metadata", "http://metadata.google.internal./", true},
+		{"trailing dot localhost", "http://localhost./", true},
+		{"uppercase trailing dot", "http://LOCALHOST./", true},
+		{"CGNAT", "http://100.64.1.1/", true},
+		{"benchmarking", "http://198.18.0.1/", true},
+		{"multicast", "http://224.0.0.1/", true},
+		{"reserved", "http://240.0.0.1/", true},
+		{"NAT64 embedding 10.0.0.1", "http://[64:ff9b::a00:1]/", true},
+		{"6to4 embedding 10.0.0.1", "http://[2002:a00:1::1]/", true},
+		{"IPv4-mapped loopback", "http://[::ffff:127.0.0.1]/", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateURL(tt.url)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateURL(%q) err = %v, wantErr %v", tt.url, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestValidateURL(t *testing.T) {
+	old := lookupIP
+	lookupIP = func(host string) ([]net.IP, error) {
+		if host == "example.com" {
+			return []net.IP{net.ParseIP("93.184.216.34")}, nil
+		}
+		return nil, errors.New("no such host")
+	}
+	t.Cleanup(func() { lookupIP = old })
+
 	tests := []struct {
 		name    string
 		url     string
