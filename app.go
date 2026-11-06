@@ -474,7 +474,11 @@ func (a *App) AddProxiesBatch(raw string) ([]*ProxyEntry, error) {
 	a.addLog("batch-added", "", "", fmt.Sprintf("%d proxies", len(added)))
 	err := a.saveProxies()
 	a.emitEvent("proxies-changed")
-	return added, err
+	views := make([]*ProxyEntry, len(added))
+	for i, p := range added {
+		views[i] = a.view(p)
+	}
+	return views, err
 }
 
 func (a *App) RemoveProxy(id string) error {

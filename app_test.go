@@ -143,6 +143,19 @@ func TestSetProxyNameReturnsCopyAndRespectsReadOnly(t *testing.T) {
 	}
 }
 
+func TestBatchAddReturnsPasswordFreeCopies(t *testing.T) {
+	a, _ := newTestApp(t)
+	added, err := a.AddProxiesBatch("1.1.1.1:80:u:secret\n2.2.2.2:80:u:secret")
+	if err != nil || len(added) != 2 {
+		t.Fatalf("added=%d err=%v", len(added), err)
+	}
+	for _, p := range added {
+		if p.Password != "" {
+			t.Fatal("batch add returned the password to the UI")
+		}
+	}
+}
+
 func TestAddProxiesMultiFormatRespectsReadOnly(t *testing.T) {
 	a, _ := newTestApp(t)
 	a.markStoreReadOnly(errors.New("corrupt store"))
