@@ -5,13 +5,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +19,7 @@ import (
 
 	"proxy_ui/internal/config"
 	"proxy_ui/internal/crypto"
+	"proxy_ui/internal/fsutil"
 	"proxy_ui/internal/proxy"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -107,6 +108,7 @@ type App struct {
 	logs       []LogEntry
 	logMu      sync.RWMutex
 	crypt      *crypto.Store
+	storeErr   error // non-nil: proxies.json could not be loaded, never save over it
 
 	dataFile       string
 	emit           func(ctx context.Context, name string, data ...interface{})
@@ -242,22 +244,32 @@ func (a *App) GetConnectionLog() []LogEntry {
 
 // --- Persistence ---
 
+// loadProxies reads the store. If the file exists but cannot be read
+// (invalid JSON, undecryptable credentials) the store goes read-only so a
+// later save never overwrites data we could not load.
 func (a *App) loadProxies() {
 	data, err := os.ReadFile(a.dataFile)
+	if os.IsNotExist(err) {
+		return
+	}
 	if err != nil {
+		a.markStoreReadOnly(err)
 		return
 	}
 	var entries []*ProxyEntry
 	if err := json.Unmarshal(data, &entries); err != nil {
+		a.markStoreReadOnly(fmt.Errorf("parse %s: %w", a.dataFile, err))
 		return
 	}
 	a.mu.Lock()
+	defer a.mu.Unlock()
 	for _, p := range entries {
-		if dec, err := a.crypt.Decrypt(p.Username); err == nil {
-			p.Username = dec
-		}
-		if dec, err := a.crypt.Decrypt(p.Password); err == nil {
-			p.Password = dec
+		user, errU := a.crypt.Decrypt(p.Username)
+		pass, errP := a.crypt.Decrypt(p.Password)
+		if err := errors.Join(errU, errP); err != nil {
+			a.storeErr = fmt.Errorf("decrypt credentials of %s:%s: %w", p.Host, p.Port, err)
+		} else {
+			p.Username, p.Password = user, pass
 		}
 		p.Status = StatusOffline
 		p.Active = false
@@ -265,20 +277,42 @@ func (a *App) loadProxies() {
 		p.Latency = 0
 		a.proxies[p.ID] = p
 	}
-	a.mu.Unlock()
+	if a.storeErr != nil {
+		a.emitEvent("store-error", a.storeErr.Error())
+	}
 }
 
-func (a *App) saveProxies() {
+func (a *App) markStoreReadOnly(err error) {
+	a.mu.Lock()
+	a.storeErr = err
+	a.mu.Unlock()
+	a.emitEvent("store-error", err.Error())
+}
+
+func (a *App) checkStoreWritable() error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.storeErr != nil {
+		return fmt.Errorf("proxy store is read-only: %w", a.storeErr)
+	}
+	return nil
+}
+
+func (a *App) saveProxies() error {
+	if err := a.checkStoreWritable(); err != nil {
+		return err
+	}
 	a.mu.RLock()
 	entries := make([]*ProxyEntry, 0, len(a.proxies))
 	for _, p := range a.proxies {
 		clone := *p
-		if enc, err := a.crypt.Encrypt(clone.Username); err == nil {
-			clone.Username = enc
+		user, errU := a.crypt.Encrypt(clone.Username)
+		pass, errP := a.crypt.Encrypt(clone.Password)
+		if err := errors.Join(errU, errP); err != nil {
+			a.mu.RUnlock()
+			return fmt.Errorf("encrypt credentials: %w", err)
 		}
-		if enc, err := a.crypt.Encrypt(clone.Password); err == nil {
-			clone.Password = enc
-		}
+		clone.Username, clone.Password = user, pass
 		clone.Status = StatusOffline
 		clone.Active = false
 		clone.CurrentIP = ""
@@ -287,9 +321,15 @@ func (a *App) saveProxies() {
 	}
 	a.mu.RUnlock()
 
-	os.MkdirAll(filepath.Dir(a.dataFile), 0o700)
-	data, _ := json.MarshalIndent(entries, "", "  ")
-	os.WriteFile(a.dataFile, data, 0o600)
+	data, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := fsutil.WriteFileAtomic(a.dataFile, data, 0o600); err != nil {
+		a.emitEvent("store-error", err.Error())
+		return err
+	}
+	return nil
 }
 
 // --- Proxy CRUD ---
@@ -343,6 +383,9 @@ func parseProxy(raw string) (*ProxyEntry, error) {
 }
 
 func (a *App) AddProxy(raw string) (*ProxyEntry, error) {
+	if err := a.checkStoreWritable(); err != nil {
+		return nil, err
+	}
 	p, err := parseProxy(raw)
 	if err != nil {
 		return nil, err
@@ -353,12 +396,17 @@ func (a *App) AddProxy(raw string) (*ProxyEntry, error) {
 	a.mu.Unlock()
 
 	a.addLog("added", p.ID, p.Host+":"+p.Port, "")
-	a.saveProxies()
+	if err := a.saveProxies(); err != nil {
+		return p, err
+	}
 	a.emitEvent("proxy-updated", p)
 	return p, nil
 }
 
 func (a *App) AddProxiesBatch(raw string) ([]*ProxyEntry, error) {
+	if err := a.checkStoreWritable(); err != nil {
+		return nil, err
+	}
 	lines := strings.Split(raw, "\n")
 	var added []*ProxyEntry
 
@@ -378,12 +426,15 @@ func (a *App) AddProxiesBatch(raw string) ([]*ProxyEntry, error) {
 	}
 
 	a.addLog("batch-added", "", "", fmt.Sprintf("%d proxies", len(added)))
-	a.saveProxies()
+	err := a.saveProxies()
 	a.emitEvent("proxies-changed")
-	return added, nil
+	return added, err
 }
 
-func (a *App) RemoveProxy(id string) {
+func (a *App) RemoveProxy(id string) error {
+	if err := a.checkStoreWritable(); err != nil {
+		return err
+	}
 	a.mu.RLock()
 	p := a.proxies[id]
 	active := p != nil && p.Active
@@ -402,8 +453,9 @@ func (a *App) RemoveProxy(id string) {
 	delete(a.proxies, id)
 	a.mu.Unlock()
 	a.addLog("removed", id, host, "")
-	a.saveProxies()
+	err := a.saveProxies()
 	a.emitEvent("proxies-changed")
+	return err
 }
 
 func (a *App) GetProxies() []*ProxyEntry {
@@ -420,7 +472,10 @@ func (a *App) GetProxies() []*ProxyEntry {
 	return result
 }
 
-func (a *App) ReorderProxies(ids []string) {
+func (a *App) ReorderProxies(ids []string) error {
+	if err := a.checkStoreWritable(); err != nil {
+		return err
+	}
 	a.mu.Lock()
 	for i, id := range ids {
 		if p, ok := a.proxies[id]; ok {
@@ -428,7 +483,7 @@ func (a *App) ReorderProxies(ids []string) {
 		}
 	}
 	a.mu.Unlock()
-	a.saveProxies()
+	return a.saveProxies()
 }
 
 func (a *App) ExportProxies() string {
@@ -463,6 +518,9 @@ func (a *App) GetGroups() []string {
 }
 
 func (a *App) SetProxyGroup(id, group string) (*ProxyEntry, error) {
+	if err := a.checkStoreWritable(); err != nil {
+		return nil, err
+	}
 	a.mu.Lock()
 	p, ok := a.proxies[id]
 	if !ok {
@@ -471,7 +529,9 @@ func (a *App) SetProxyGroup(id, group string) (*ProxyEntry, error) {
 	}
 	p.Group = group
 	a.mu.Unlock()
-	a.saveProxies()
+	if err := a.saveProxies(); err != nil {
+		return p, err
+	}
 	a.emitEvent("proxy-updated", p)
 	return p, nil
 }

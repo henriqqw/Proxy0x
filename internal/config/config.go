@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"proxy_ui/internal/fsutil"
 )
 
 type Config struct {
@@ -47,10 +49,12 @@ func Load() Config {
 	return cfg
 }
 
-func Save(cfg Config) {
-	os.MkdirAll(DataDir(), 0o700)
-	data, _ := json.MarshalIndent(cfg, "", "  ")
-	os.WriteFile(FilePath(), data, 0o600)
+func Save(cfg Config) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fsutil.WriteFileAtomic(FilePath(), data, 0o600)
 }
 
 func defaults() Config {

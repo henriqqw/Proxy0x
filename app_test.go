@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -357,6 +358,46 @@ func TestHealthCheckDoesNotHoldLockDuringGeoLookup(t *testing.T) {
 	a.GetProxies()
 	if d := time.Since(start); d > 100*time.Millisecond {
 		t.Fatalf("GetProxies blocked %v while the health check did network I/O", d)
+	}
+}
+
+func TestUnreadableStoreBecomesReadOnly(t *testing.T) {
+	cases := map[string]string{
+		"invalid json":        `[{"id":"a","host":"h","port":"1"`,
+		"undecryptable creds": `[{"id":"a","host":"h","port":"1","username":"enc:AAAA","password":"enc:AAAA"}]`,
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			a, _ := newTestApp(t)
+			if err := os.WriteFile(a.dataFile, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			a.loadProxies()
+
+			if _, err := a.AddProxy("1.2.3.4:8080"); err == nil {
+				t.Fatal("AddProxy should fail while the store is read-only")
+			}
+			got, _ := os.ReadFile(a.dataFile)
+			if string(got) != content {
+				t.Fatalf("store was overwritten:\n%s", got)
+			}
+		})
+	}
+}
+
+func TestSaveIsAtomicWithBackup(t *testing.T) {
+	a, _ := newTestApp(t)
+	addTestProxy(t, a, "1.1.1.1", "80")
+	addTestProxy(t, a, "2.2.2.2", "80")
+
+	if _, err := os.Stat(a.dataFile + ".bak"); err != nil {
+		t.Fatalf("no backup of the previous version: %v", err)
+	}
+	a2, _ := newTestApp(t)
+	a2.dataFile, a2.crypt = a.dataFile, a.crypt
+	a2.loadProxies()
+	if n := len(a2.GetProxies()); n != 2 {
+		t.Fatalf("reloaded %d proxies, want 2", n)
 	}
 }
 
