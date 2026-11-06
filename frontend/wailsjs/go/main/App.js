@@ -82,8 +82,8 @@ export function GetTheme() {
   return window['go']['main']['App']['GetTheme']();
 }
 
-export function InstallMCPConfig() {
-  return window['go']['main']['App']['InstallMCPConfig']();
+export function InstallMCPClient(arg1) {
+  return window['go']['main']['App']['InstallMCPClient'](arg1);
 }
 
 export function MinimizeWindow() {
@@ -138,6 +138,6 @@ export function ToggleMaximize() {
   return window['go']['main']['App']['ToggleMaximize']();
 }
 
-export function UninstallMCPConfig() {
-  return window['go']['main']['App']['UninstallMCPConfig']();
+export function UninstallMCPClient(arg1) {
+  return window['go']['main']['App']['UninstallMCPClient'](arg1);
 }

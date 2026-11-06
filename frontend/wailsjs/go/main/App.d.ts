@@ -42,7 +42,7 @@ export function GetProxies():Promise<Array<main.ProxyEntry>>;
 
 export function GetTheme():Promise<string>;
 
-export function InstallMCPConfig():Promise<void>;
+export function InstallMCPClient(arg1:string):Promise<void>;
 
 export function MinimizeWindow():Promise<void>;
 
@@ -70,4 +70,4 @@ export function ShowWindow():Promise<void>;
 
 export function ToggleMaximize():Promise<void>;
 
-export function UninstallMCPConfig():Promise<void>;
+export function UninstallMCPClient(arg1:string):Promise<void>;

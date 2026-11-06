@@ -10,22 +10,89 @@ import (
 	"time"
 )
 
-type MCPStatus struct {
-	Installed   bool   `json:"installed"`
-	ExePath     string `json:"exePath"`
-	ExeExists   bool   `json:"exeExists"`
-	ConfigPath  string `json:"configPath"`
-	HealthOK    bool   `json:"healthOk"`
-	HealthError string `json:"healthError,omitempty"`
+type MCPClientInfo struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Detected   bool   `json:"detected"`
+	Installed  bool   `json:"installed"`
+	ConfigPath string `json:"configPath"`
 }
 
-func claudeConfigPath() string {
-	appdata := os.Getenv("APPDATA")
-	if appdata == "" {
-		dir, _ := os.UserConfigDir()
-		appdata = dir
+type MCPStatus struct {
+	ExePath     string          `json:"exePath"`
+	ExeExists   bool            `json:"exeExists"`
+	Clients     []MCPClientInfo `json:"clients"`
+	HealthOK    bool            `json:"healthOk"`
+	HealthError string          `json:"healthError,omitempty"`
+}
+
+type mcpClientDef struct {
+	id         string
+	name       string
+	configPath func() string
+	detectDirs func() []string
+}
+
+func roamingDir() string {
+	if d := os.Getenv("APPDATA"); d != "" {
+		return d
 	}
-	return filepath.Join(appdata, "Claude", "claude_desktop_config.json")
+	d, _ := os.UserConfigDir()
+	return d
+}
+
+func homeDir() string {
+	d, _ := os.UserHomeDir()
+	return d
+}
+
+var mcpClientDefs = []mcpClientDef{
+	{
+		id:   "claude-desktop",
+		name: "Claude Desktop",
+		configPath: func() string {
+			return filepath.Join(roamingDir(), "Claude", "claude_desktop_config.json")
+		},
+		detectDirs: func() []string {
+			return []string{filepath.Join(roamingDir(), "Claude")}
+		},
+	},
+	{
+		id:   "codex",
+		name: "Codex",
+		configPath: func() string {
+			return filepath.Join(homeDir(), ".codex", "config.json")
+		},
+		detectDirs: func() []string {
+			return []string{filepath.Join(homeDir(), ".codex")}
+		},
+	},
+	{
+		id:   "cursor",
+		name: "Cursor",
+		configPath: func() string {
+			return filepath.Join(homeDir(), ".cursor", "mcp.json")
+		},
+		detectDirs: func() []string {
+			return []string{
+				filepath.Join(roamingDir(), "Cursor"),
+				filepath.Join(homeDir(), ".cursor"),
+			}
+		},
+	},
+	{
+		id:   "windsurf",
+		name: "Windsurf",
+		configPath: func() string {
+			return filepath.Join(homeDir(), ".codeium", "windsurf", "mcp_config.json")
+		},
+		detectDirs: func() []string {
+			return []string{
+				filepath.Join(roamingDir(), "Windsurf"),
+				filepath.Join(homeDir(), ".codeium", "windsurf"),
+			}
+		},
+	},
 }
 
 func mcpExePath() string {
@@ -36,57 +103,51 @@ func mcpExePath() string {
 	return filepath.Join(filepath.Dir(exe), "proxy0x-mcp.exe")
 }
 
-func (a *App) GetMCPStatus() MCPStatus {
-	exePath := mcpExePath()
-	configPath := claudeConfigPath()
-
-	status := MCPStatus{
-		ExePath:    exePath,
-		ConfigPath: configPath,
-	}
-
-	if _, err := os.Stat(exePath); err == nil {
-		status.ExeExists = true
-	}
-
-	data, err := os.ReadFile(configPath)
-	if err == nil {
-		var cfg map[string]any
-		if json.Unmarshal(data, &cfg) == nil {
-			if servers, ok := cfg["mcpServers"].(map[string]any); ok {
-				if _, ok := servers["proxy0x"]; ok {
-					status.Installed = true
-				}
-			}
+func clientDetected(def mcpClientDef) bool {
+	for _, dir := range def.detectDirs() {
+		if _, err := os.Stat(dir); err == nil {
+			return true
 		}
 	}
-
-	return status
+	return false
 }
 
-func (a *App) InstallMCPConfig() error {
-	exePath := mcpExePath()
-	if _, err := os.Stat(exePath); err != nil {
-		return fmt.Errorf("MCP server binary not found at %s", exePath)
+func readJSON(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
 	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
 
-	configPath := claudeConfigPath()
-	os.MkdirAll(filepath.Dir(configPath), 0o755)
+func hasProxy0x(cfg map[string]any) bool {
+	servers, ok := cfg["mcpServers"].(map[string]any)
+	if !ok {
+		return false
+	}
+	_, ok = servers["proxy0x"]
+	return ok
+}
+
+func addProxy0x(path, exePath string) error {
+	os.MkdirAll(filepath.Dir(path), 0o755)
 
 	var cfg map[string]any
-	data, err := os.ReadFile(configPath)
-	if err == nil {
+	if data, err := os.ReadFile(path); err == nil {
 		json.Unmarshal(data, &cfg)
 	}
 	if cfg == nil {
 		cfg = make(map[string]any)
 	}
 
-	servers, ok := cfg["mcpServers"].(map[string]any)
-	if !ok {
+	servers, _ := cfg["mcpServers"].(map[string]any)
+	if servers == nil {
 		servers = make(map[string]any)
 	}
-
 	servers["proxy0x"] = map[string]any{
 		"command": exePath,
 		"args":    []string{},
@@ -97,28 +158,22 @@ func (a *App) InstallMCPConfig() error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-
-	return os.WriteFile(configPath, out, 0o644)
+	return os.WriteFile(path, out, 0o644)
 }
 
-func (a *App) UninstallMCPConfig() error {
-	configPath := claudeConfigPath()
-
-	data, err := os.ReadFile(configPath)
+func removeProxy0x(path string) error {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
-
 	var cfg map[string]any
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
-
 	servers, ok := cfg["mcpServers"].(map[string]any)
 	if !ok {
 		return nil
 	}
-
 	delete(servers, "proxy0x")
 	cfg["mcpServers"] = servers
 
@@ -126,26 +181,65 @@ func (a *App) UninstallMCPConfig() error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
+	return os.WriteFile(path, out, 0o644)
+}
 
-	return os.WriteFile(configPath, out, 0o644)
+func (a *App) GetMCPStatus() MCPStatus {
+	exePath := mcpExePath()
+	status := MCPStatus{ExePath: exePath}
+	if _, err := os.Stat(exePath); err == nil {
+		status.ExeExists = true
+	}
+	for _, def := range mcpClientDefs {
+		ci := MCPClientInfo{
+			ID:         def.id,
+			Name:       def.name,
+			ConfigPath: def.configPath(),
+			Detected:   clientDetected(def),
+		}
+		if cfg, err := readJSON(ci.ConfigPath); err == nil {
+			ci.Installed = hasProxy0x(cfg)
+		}
+		status.Clients = append(status.Clients, ci)
+	}
+	return status
+}
+
+func (a *App) InstallMCPClient(clientID string) error {
+	exePath := mcpExePath()
+	if _, err := os.Stat(exePath); err != nil {
+		return fmt.Errorf("MCP server binary not found at %s", exePath)
+	}
+	for _, def := range mcpClientDefs {
+		if def.id == clientID {
+			return addProxy0x(def.configPath(), exePath)
+		}
+	}
+	return fmt.Errorf("unknown client: %s", clientID)
+}
+
+func (a *App) UninstallMCPClient(clientID string) error {
+	for _, def := range mcpClientDefs {
+		if def.id == clientID {
+			return removeProxy0x(def.configPath())
+		}
+	}
+	return fmt.Errorf("unknown client: %s", clientID)
 }
 
 func (a *App) CheckMCPHealth() MCPStatus {
 	status := a.GetMCPStatus()
-
 	if !status.ExeExists {
 		status.HealthError = "MCP server binary not found"
 		return status
 	}
 
 	cmd := exec.Command(status.ExePath)
-
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		status.HealthError = fmt.Sprintf("pipe error: %v", err)
 		return status
 	}
-
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = nil

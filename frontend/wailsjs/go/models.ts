@@ -50,11 +50,30 @@ export namespace main {
 	        this.detail = source["detail"];
 	    }
 	}
-	export class MCPStatus {
+	export class MCPClientInfo {
+	    id: string;
+	    name: string;
+	    detected: boolean;
 	    installed: boolean;
+	    configPath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPClientInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.detected = source["detected"];
+	        this.installed = source["installed"];
+	        this.configPath = source["configPath"];
+	    }
+	}
+	export class MCPStatus {
 	    exePath: string;
 	    exeExists: boolean;
-	    configPath: string;
+	    clients: MCPClientInfo[];
 	    healthOk: boolean;
 	    healthError?: string;
 	
@@ -64,13 +83,30 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.installed = source["installed"];
 	        this.exePath = source["exePath"];
 	        this.exeExists = source["exeExists"];
-	        this.configPath = source["configPath"];
+	        this.clients = this.convertValues(source["clients"], MCPClientInfo);
 	        this.healthOk = source["healthOk"];
 	        this.healthError = source["healthError"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ProxyEntry {
 	    id: string;
