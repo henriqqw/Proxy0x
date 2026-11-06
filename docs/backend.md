@@ -48,7 +48,7 @@ type App struct {
 |--------|-------------|
 | `AddProxy(raw string)` | Parse `host:port[:user:pass]` format, assign random ID and session ID, persist |
 | `AddProxiesBatch(raw string)` | Parse multiple proxies (newline-separated), persist all at once |
-| `RemoveProxy(id)` | Delete from map, close HTTP client, persist |
+| `RemoveProxy(id)` | Disconnect first if active, delete from map, close its HTTP client, persist |
 | `GetProxies()` | Return all proxies sorted by `Order` field |
 | `ReorderProxies(ids)` | Update `Order` field for each proxy by array index |
 | `ExportProxies()` | Return all proxies as `host:port:user:pass` text |
@@ -75,11 +75,11 @@ Proxies can be tagged with a group name. Groups are derived dynamically from the
 ### `ConnectProxy(id)`
 
 1. Disconnect any currently active proxy
-2. Set status to `connecting`, create HTTP client with proxy transport
-3. Hit `https://api.ipify.org?format=json` to verify connectivity and get the exit IP
+2. Set status to `connecting`, create HTTP client with proxy transport (SOCKS5 dialer errors are returned, never replaced by a direct connection)
+3. Verify the exit IP via `https://api.ipify.org?format=json` (HTTP 200 + valid IP required)
 4. Fetch geolocation from `https://ipwho.is/{ip}`
-5. Set status to `connected`, record IP, latency, geo, `connectedAt` timestamp
-6. Start local proxy server and set Windows system proxy
+5. Start local proxy server and set Windows system proxy; if the server cannot start, the connect fails with `error`
+6. Set status to `connected`, record IP, latency, geo, `connectedAt` timestamp
 
 ### `DisconnectProxy(id)`
 
@@ -91,11 +91,10 @@ Proxies can be tagged with a group name. Groups are derived dynamically from the
 
 ### `RotateProxy(id)`
 
-1. Close old HTTP client (keyed by old session ID)
-2. Generate a new random session ID
-3. Create new HTTP client (new session ID → new upstream IP)
-4. Verify new IP via ipify, fetch geo
-5. Restart local proxy server with new upstream config
+1. Generate a candidate session ID and an HTTP client for it
+2. Verify the exit IP through the candidate session, fetch geo
+3. On success: switch to the new session, close the old client, point the local proxy at the new session
+4. On failure: close the candidate client, keep the previous session and status, return the error
 
 Session rotation works by appending `_session-{id}` to the proxy username. Each unique session ID gets a different exit IP from residential proxy pools.
 
@@ -190,10 +189,10 @@ type Config struct {
 
 `tray.go` — uses `energye/systray`:
 - Custom icon from `build/windows/tray.ico`
-- Language submenu (16 languages with flag icons)
-- Connect All / Disconnect All / Rotate All
-- Show / Quit
-- Updates language in real time via Wails event listener
+- Show
+- Disconnect / Rotate (act on the single active proxy; there is no "Connect All" because only one proxy can be active)
+- Language submenu (16 languages, text labels)
+- Quit
 
 ## External Services
 

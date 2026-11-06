@@ -14,9 +14,14 @@ Score() = Successes * 2 - Failures
 
 Residential proxy providers route traffic based on a session identifier embedded in the username (`user_session-<id>`). Calling `Rotate()`:
 
-1. Generates a new 8-byte hex `SessionID` via `crypto/rand`.
-2. The next request uses the new session, which the upstream provider maps to a different residential IP.
-3. Verifies the new IP via `api.ipify.org` through the proxy.
+1. Generates a candidate 6-byte hex `SessionID` via `crypto/rand`.
+2. Verifies the exit IP through the proxy with the candidate session (see **Exit IP verification**).
+3. On success: the session switches to the candidate, the old HTTP client is closed, the geolocation is refreshed and the local proxy uses the new session.
+4. On failure: the previous session and status are kept (traffic keeps flowing on the old session) and an error is returned.
+
+## Exit IP verification
+
+Connect, rotate, health check and speed test verify the exit IP by fetching `api.ipify.org?format=json` through the proxy. A check succeeds only with HTTP 200 and a body whose `ip` field parses as an IP address; anything else (non-200, malformed JSON, empty IP, network error) is a failure. Each request times out after 20s. Network calls (verification and geolocation) never run while holding the proxy-list lock.
 
 ## Auto-Rotation
 
@@ -31,28 +36,32 @@ Configured in Settings as an interval in seconds. Presets: 1, 3, 5, 10 minutes. 
 A background goroutine (`healthCheckLoop`) runs every `HealthCheckInterval` seconds (default: 180s / 3 min).
 
 For each active proxy:
-1. Fetch `api.ipify.org` through the proxy with a 10-second timeout.
-2. If the fetch fails, mark the proxy as `error` and emit a Windows notification.
-3. If the fetch succeeds, update `CurrentIP` and `LastCheck`.
+1. Verify the exit IP (see **Exit IP verification**).
+2. If verification fails, mark the proxy as `error` and emit a Windows notification.
+3. If it succeeds, update `Latency`, `LastCheck` and, when the IP changed, `CurrentIP` and geolocation.
 
 ## Connection Lifecycle
 
+Only one proxy is active at a time. Connecting a proxy disconnects the currently active one first.
+
 ### Connect
 
-1. Set `Active = true`, `Status = connecting`.
-2. Start a local proxy server (`LocalServer`) on `127.0.0.1` that forwards traffic to the upstream proxy.
-3. Set the Windows system proxy (registry) to point to the local server.
-4. Verify the external IP via `api.ipify.org` through the proxy.
-5. On success: `Status = connected`, record `ConnectedAt` timestamp, fetch geolocation from `ip-api.com`.
-6. On failure: `Status = error`, log the error, clear system proxy.
+1. Set `Status = connecting`.
+2. Verify the exit IP through the proxy (see **Exit IP verification**). On failure: `Status = error`, IP and geolocation cleared, nothing else changes.
+3. Fetch geolocation from `ipwho.is`.
+4. Start a local proxy server (`LocalServer`) on `127.0.0.1` and point the Windows system proxy at it. If the local server cannot start, the connect fails: `Status = error`, system proxy untouched.
+5. On success: `Status = connected`, `Active = true`, record `ConnectedAt`.
 
 ### Disconnect
 
-1. Close all tracked connections (instant, no hanging sockets).
-2. Stop the local proxy server.
-3. Clear the Windows system proxy registry entries.
-4. Set `Active = false`, `Status = offline`.
-5. Accumulate elapsed time into `TotalUptime`.
+1. Stop the local proxy server (closes every tracked connection, returns in under a second).
+2. Clear the Windows system proxy.
+3. Set `Active = false`, `Status = offline`, clear IP, latency and geolocation.
+4. Accumulate elapsed time into `TotalUptime`.
+
+### Remove
+
+Removing the active proxy disconnects it first (local server stopped, system proxy cleared), then deletes it and closes its HTTP client.
 
 ## Credential Encryption
 
