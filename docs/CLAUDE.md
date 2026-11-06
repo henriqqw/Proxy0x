@@ -55,4 +55,5 @@ All under `%AppData%` (Windows `os.UserConfigDir()`):
 - `Proxy0x/.key` — AES-256 key, protected with DPAPI (`.key.legacy` = pre-DPAPI backup)
 - `Proxy0x/config.json` — app settings (language, theme, intervals, kill switch, failover)
 - `Proxy0x/sysproxy-backup.json` — user's Windows proxy settings while connected
+- `Proxy0x/killswitch-backup.json` — firewall policy per profile while the kill switch is on
 - MCP client configs (e.g. `Claude/claude_desktop_config.json`) — backed up as `<file>.proxy0x.bak`

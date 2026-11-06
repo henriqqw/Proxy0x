@@ -3,6 +3,10 @@ package main
 import (
 	"embed"
 	"log"
+	"os"
+
+	"proxy_ui/internal/config"
+	"proxy_ui/internal/killswitch"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -14,6 +18,14 @@ import (
 var assets embed.FS
 
 func main() {
+	// Run by the uninstaller so firewall rules never outlive the app.
+	if len(os.Args) > 1 && os.Args[1] == "--disable-killswitch" {
+		if err := killswitch.New(config.KillSwitchBackupFile()).Disable(); err != nil {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	app := NewApp()
 
 	err := wails.Run(&options.App{

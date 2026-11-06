@@ -116,8 +116,26 @@ Root: HKCU; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
-procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+// netsh exits with 0 when the rule exists and 1 when it does not.
+function KillSwitchActive(): Boolean;
+var
+  ResultCode: Integer;
 begin
+  Result := Exec(ExpandConstant('{sys}\netsh.exe'),
+    'advfirewall firewall show rule name=Proxy0x-KillSwitch-AllowApp',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
+begin
+  // Runs as the user so the policy backup in their AppData is found; the app
+  // asks for administrator rights itself.
+  if (CurUninstallStep = usUninstall) and KillSwitchActive() then
+    Exec(ExpandConstant('{app}\{#MyAppExeName}'), '--disable-killswitch',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
   if (CurUninstallStep = usPostUninstall) and not UninstallSilent then
     if MsgBox(CustomMessage('RemoveUserData'), mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
       DelTree(ExpandConstant('{userappdata}\Proxy0x'), True, True, True);

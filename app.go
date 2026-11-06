@@ -113,6 +113,12 @@ type systemProxy interface {
 	Recover() error
 }
 
+type killSwitch interface {
+	Enable() error
+	Disable() error
+	Active() bool
+}
+
 type App struct {
 	ctx        context.Context
 	proxies    map[string]*ProxyEntry
@@ -130,6 +136,7 @@ type App struct {
 	dataFile       string
 	emit           func(ctx context.Context, name string, data ...interface{})
 	sysproxy       systemProxy
+	killsw         killSwitch
 	newLocalServer func(proxy.UpstreamConfig) (*proxy.LocalServer, error)
 }
 
@@ -143,6 +150,7 @@ func NewApp() *App {
 		dataFile:       config.DataFile(),
 		emit:           runtime.EventsEmit,
 		sysproxy:       proxy.NewSystemProxy(config.SysProxyBackupFile()),
+		killsw:         killswitch.New(config.KillSwitchBackupFile()),
 		newLocalServer: proxy.NewLocalServer,
 	}
 }
@@ -186,11 +194,13 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) shutdown(ctx context.Context) {
-	if config.Load().KillSwitch {
-		killswitch.Disable()
-		cfg := config.Load()
-		cfg.KillSwitch = false
-		config.Save(cfg)
+	// Quitting normally lifts the block; a crash or kill leaves it on (fail closed).
+	if a.killsw.Active() {
+		if err := a.killsw.Disable(); err == nil {
+			cfg := config.Load()
+			cfg.KillSwitch = false
+			config.Save(cfg)
+		}
 	}
 	a.lpMu.Lock()
 	if a.localProxy != nil {
@@ -1197,16 +1207,18 @@ func (a *App) GetMyIP() (string, error) {
 
 // --- Kill Switch ---
 
+// GetKillSwitch reports the firewall state, not the saved setting, so rules
+// left by a crash still show as on and can be turned off.
 func (a *App) GetKillSwitch() bool {
-	return config.Load().KillSwitch
+	return a.killsw.Active()
 }
 
 func (a *App) SetKillSwitch(enabled bool) error {
 	var err error
 	if enabled {
-		err = killswitch.Enable()
+		err = a.killsw.Enable()
 	} else {
-		err = killswitch.Disable()
+		err = a.killsw.Disable()
 	}
 	if err != nil {
 		return err
@@ -1401,14 +1413,19 @@ func (a *App) CheckDNSLeak() DNSLeakResult {
 // --- UWP Loopback Exemption ---
 
 func (a *App) EnableUWPSupport() error {
-	script := `@echo off
-CheckNetIsolation.exe LoopbackExempt -a -n="Microsoft.MicrosoftEdge_8wekyb3d8bbwe" >nul 2>&1
-CheckNetIsolation.exe LoopbackExempt -a -n="Microsoft.Windows.Search_cw5n1h2txyewy" >nul 2>&1
-CheckNetIsolation.exe LoopbackExempt -a -n="Microsoft.WindowsStore_8wekyb3d8bbwe" >nul 2>&1
-CheckNetIsolation.exe LoopbackExempt -a -n="Microsoft.MSPaint_8wekyb3d8bbwe" >nul 2>&1
-CheckNetIsolation.exe LoopbackExempt -a -n="Microsoft.MicrosoftEdge.Stable_8wekyb3d8bbwe" >nul 2>&1
-`
-	return killswitch.RunElevated(script)
+	packages := []string{
+		"Microsoft.MicrosoftEdge_8wekyb3d8bbwe",
+		"Microsoft.Windows.Search_cw5n1h2txyewy",
+		"Microsoft.WindowsStore_8wekyb3d8bbwe",
+		"Microsoft.MSPaint_8wekyb3d8bbwe",
+		"Microsoft.MicrosoftEdge.Stable_8wekyb3d8bbwe",
+	}
+	var cmds []string
+	for _, p := range packages {
+		cmds = append(cmds, fmt.Sprintf(`CheckNetIsolation.exe LoopbackExempt -a -n="%s" >nul 2>&1`, p))
+	}
+	// Packages that are not installed fail; that is expected, not an error.
+	return killswitch.RunElevated(strings.Join(cmds, " & ") + " & exit 0")
 }
 
 // --- Import Formats ---

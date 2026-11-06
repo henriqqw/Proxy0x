@@ -119,22 +119,38 @@ The local proxy server tracks every TCP connection it handles — the client sid
 
 ## Kill switch (`internal/killswitch`)
 
-Toggled in Settings → Security. Enabling runs an elevated script (UAC prompt) that adds three Windows Firewall rules:
+Toggled in Settings → Security. Windows Firewall applies block rules before allow rules, so a "block everything" rule would also block Proxy0x. The kill switch instead changes each profile's **default outbound action** to block and adds allow rules for what must keep working.
 
-| Rule | Effect |
-|------|--------|
-| `Proxy0x-KillSwitch-Block` | block all outbound traffic |
-| `Proxy0x-KillSwitch-AllowApp` | allow outbound for the Proxy0x executable |
-| `Proxy0x-KillSwitch-AllowLocal` | allow outbound to `127.0.0.1` / `::1` |
+Enabling (one UAC prompt):
+1. Reads the current policy of the domain, private and public profiles (`netsh advfirewall show <profile>profile firewallpolicy`) and saves it to `%AppData%/Proxy0x/killswitch-backup.json`. An existing backup is kept, so enabling twice never records Proxy0x's own `blockoutbound` as the user's policy.
+2. Adds the allow rules:
 
-Disabling deletes the three rules (another UAC prompt). On app shutdown, if the kill switch is on, the app disables it (UAC prompt at quit) and stores `killSwitch=false`; it is not re-enabled on the next start.
+   | Rule | Effect |
+   |------|--------|
+   | `Proxy0x-KillSwitch-AllowApp` | outbound for the Proxy0x executable |
+   | `Proxy0x-KillSwitch-AllowLocal` | outbound to `127.0.0.1` / `::1` (apps reach the local proxy) |
+   | `Proxy0x-KillSwitch-AllowDNS-UDP` / `-TCP` | DNS Client service (`svchost.exe`, `dnscache`) to port 53, so Proxy0x can resolve upstream hostnames |
 
-Known risks (not verified on a real machine yet):
-- **Rule precedence (unverified):** in Windows Defender Firewall, block rules take precedence over allow rules. If that applies here, the allow-app rule does not exempt Proxy0x and enabling the kill switch cuts *all* internet access, including the proxy itself.
-- **Rules persist:** if the app is killed, crashes or is uninstalled while the kill switch is on, the firewall rules stay and outbound traffic stays blocked until they are removed (Disable in the app, or `netsh advfirewall firewall delete rule name=Proxy0x-KillSwitch-Block`). The uninstaller runs without elevation and does not remove them.
-- **Elevated script handling:** the script is written to a fixed path (`%TEMP%\proxy0x-fw.bat`) and executed elevated via `ShellExecute("runas")`. `ShellExecute` returns before the script runs and the file is deleted right away, so the script may be gone before `cmd.exe` reads it (the toggle can silently do nothing), and another process running as the user could replace the file between write and elevated execution.
+3. Sets each profile to `<its inbound policy>,blockoutbound`, last, so a failed rule never leaves the machine blocked without an exception for Proxy0x.
 
-`EnableUWPSupport` uses the same elevated-script mechanism to add `CheckNetIsolation LoopbackExempt` entries for Edge, Windows Search, Microsoft Store and Paint, so those UWP apps may use the local proxy on `127.0.0.1`.
+Disabling restores the saved policy first and deletes the rules last (including `Proxy0x-KillSwitch-Block`, left by versions up to 1.1.0), then removes the backup. Without a backup, outbound is reopened only on profiles that block it while Proxy0x's allow rule exists; a policy the user set themself is left alone. If no Proxy0x rule exists, Disable does nothing (no UAC prompt).
+
+`GetKillSwitch` reports whether `Proxy0x-KillSwitch-AllowApp` exists, not the saved setting, so rules left by a crash show as on and can be turned off.
+
+Lifecycle:
+- **Quit:** the app disables the kill switch (UAC prompt at quit).
+- **Crash or killed process:** the block stays on (fail closed). Start Proxy0x and turn it off, or run `Proxy0x.exe --disable-killswitch`.
+- **Uninstall:** the uninstaller checks for `Proxy0x-KillSwitch-AllowApp` and, if present, runs `Proxy0x.exe --disable-killswitch` as the user (the policy backup is in their AppData); that asks for administrator rights. If the prompt is declined, remove it manually as administrator: restore the policy with `netsh advfirewall set allprofiles firewallpolicy blockinbound,allowoutbound` (Windows default) and delete the `Proxy0x-KillSwitch-*` rules.
+
+Elevation (`RunElevated`): the whole command is passed on the command line of `%SystemRoot%\System32\cmd.exe /S /C "…"` through `ShellExecuteExW("runas")`; no script file is written, so nothing can be swapped between write and execution. The call waits for the process (60 s limit) and fails on a non-zero exit code or a declined UAC prompt (`ErrCancelled`). Values that reach the command are checked: policy strings must match `(blockinboundalways|blockinbound|allowinbound),(blockoutbound|allowoutbound)` (the backup file is user-writable), and program paths containing `"` or `%` are rejected.
+
+Limitations:
+- **Existing allow rules still apply.** Any program that already has an enabled outbound allow rule in Windows Firewall keeps network access: Windows services, Store apps and some games or launchers. Ordinary desktop apps without such a rule (Chrome, Edge, Firefox, …) are blocked unless they go through the local proxy.
+- **DNS queries** from the DNS Client service are allowed, so hostnames looked up while the kill switch is on can reach the configured DNS server directly.
+- **Firewall must be on.** If Windows Firewall is turned off for a profile, the policy has no effect there.
+- **Program path:** the allow rule names the executable's path at the time it was enabled. Moving Proxy0x while the kill switch is on blocks it too; turn the kill switch off and on again.
+
+`EnableUWPSupport` uses the same `RunElevated` to add `CheckNetIsolation LoopbackExempt` entries for Edge, Windows Search, Microsoft Store and Paint, so those UWP apps may use the local proxy on `127.0.0.1`. Packages that are not installed are skipped.
 
 ## DNS leak test
 
@@ -149,7 +165,9 @@ Known risks (not verified on a real machine yet):
 | Component | File |
 |-----------|------|
 | AES-GCM + DPAPI key (app and MCP) | `internal/crypto/crypto.go` (used by `pkg/proxycore/store.go`) |
-| Kill switch / UWP elevation | `internal/killswitch/killswitch.go` |
+| Kill switch | `internal/killswitch/killswitch.go` (tests: `killswitch_test.go`) |
+| Elevated commands (kill switch, UWP) | `internal/killswitch/elevate.go` |
+| Kill switch cleanup on uninstall | `build/installer.iss` (`[Code]`), `main.go` (`--disable-killswitch`) |
 | MCP client config writes | `mcp_integration.go` |
 | SSRF validation | `pkg/proxycore/ssrf.go` |
 | SSRF tests | `pkg/proxycore/ssrf_test.go` |

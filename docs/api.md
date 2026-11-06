@@ -57,8 +57,8 @@ Every exported method on `App` (`app.go`, `mcp_integration.go`) is bound to the 
 | `GetTheme` / `SetTheme` | `() string` / `(theme string)` | `dark`/`light`; emits `theme-changed`. |
 | `GetAutoRotateInterval` / `SetAutoRotateInterval` | `() int` / `(seconds int)` | 0 disables; emits `config-changed`. |
 | `GetHealthCheckInterval` / `SetHealthCheckInterval` | `() int` / `(seconds int)` | Min 60, default 180; emits `config-changed`. Not exposed in the UI. |
-| `GetKillSwitch` | `() bool` | The saved config flag (not a live firewall query). |
-| `SetKillSwitch` | `(enabled bool) error` | Adds/removes the `Proxy0x-KillSwitch-*` Windows Firewall rules through an elevated (UAC) script, then saves the flag. Disabled again on app shutdown. |
+| `GetKillSwitch` | `() bool` | Live firewall state: whether the `Proxy0x-KillSwitch-AllowApp` rule exists. |
+| `SetKillSwitch` | `(enabled bool) error` | Enables (outbound default block + allow rules, previous policy saved) or disables (policy restored, rules removed) through one elevated (UAC) command, waits for it, then saves the flag. Errors on a declined UAC prompt or a failed `netsh`. Disabled again on app shutdown. |
 | `GetAutoFailover` / `SetAutoFailover` | `() bool` / `(enabled bool)` | When a connected proxy drops, connect the inactive proxy with the lowest known latency. |
 | `EnableUWPSupport` | `() error` | Elevated `CheckNetIsolation LoopbackExempt` for Edge, Store, Search, Paint. |
 

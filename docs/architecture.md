@@ -50,7 +50,7 @@ Proxy0x is a Windows desktop proxy manager built with [Wails v2](https://wails.i
 | `internal/crypto` | AES-256-GCM, key protected with DPAPI; used by the app **and** the MCP store |
 | `internal/config` | `Config` and data file paths |
 | `internal/fsutil` | `WriteFileAtomic` (temp + rename, `.bak`) |
-| `internal/killswitch` | Windows Firewall rules via elevated script |
+| `internal/killswitch` | Windows Firewall kill switch (outbound default block + allow rules) via elevated `cmd.exe` |
 | `pkg/proxycore` | MCP-side pool (single active proxy), read-only store loader, SSRF guard, fetcher, HTTP client |
 | `internal/mcpserver` | MCP tools/resources/prompts (`proxy_add`/`proxy_remove` refuse: read-only) |
 | `cmd/proxy0x-mcp` | MCP binary; loads `%AppData%/Proxy0x` and serves stdio |

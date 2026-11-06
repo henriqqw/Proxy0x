@@ -44,6 +44,12 @@ func (f *fakeSysProxy) Clear() error {
 
 func (f *fakeSysProxy) Recover() error { return f.Clear() }
 
+type fakeKillSwitch struct{ active bool }
+
+func (f *fakeKillSwitch) Enable() error  { f.active = true; return nil }
+func (f *fakeKillSwitch) Disable() error { f.active = false; return nil }
+func (f *fakeKillSwitch) Active() bool   { return f.active }
+
 func (f *fakeSysProxy) isEnabled() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -51,7 +57,7 @@ func (f *fakeSysProxy) isEnabled() bool {
 }
 
 // newTestApp builds an App that never touches the Wails runtime, the real
-// registry or the user's %APPDATA%.
+// registry, the firewall or the user's %APPDATA%.
 func newTestApp(t *testing.T) (*App, *fakeSysProxy) {
 	t.Helper()
 	dir := t.TempDir()
@@ -62,6 +68,7 @@ func newTestApp(t *testing.T) (*App, *fakeSysProxy) {
 	a.crypt = crypto.NewStore(dir)
 	a.emit = func(context.Context, string, ...interface{}) {}
 	a.sysproxy = sys
+	a.killsw = &fakeKillSwitch{}
 	t.Cleanup(func() {
 		a.lpMu.Lock()
 		if a.localProxy != nil {
