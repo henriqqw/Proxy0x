@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "proxy0x": {
+      "command": "D:\\dev\\proxy_ui\\proxy0x-mcp.exe",
+      "args": [],
+      "env": {}
+    }
+  }
+}
