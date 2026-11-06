@@ -1,10 +1,17 @@
+﻿; Saved as UTF-8 with BOM so the non-Latin messages compile correctly.
+; Build: iscc /DMyAppVersion=1.2.3 build\installer.iss  (run from the repo root or anywhere)
 #define MyAppName "Proxy0x"
-#define MyAppVersion "1.0.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "0.0.0-dev"
+#endif
 #define MyAppPublisher "Proxy0x"
 #define MyAppURL "https://github.com/henriqqw/Proxy0x"
 #define MyAppExeName "Proxy0x.exe"
+#define MyMCPExeName "proxy0x-mcp.exe"
 
 [Setup]
+; Paths below are relative to the repository root, not to this script's folder.
+SourceDir=..
 AppId={{B7E3F2A1-4D5C-4E6F-8A9B-0C1D2E3F4A5B}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
@@ -45,34 +52,49 @@ Name: "polish"; MessagesFile: "compiler:Languages\Polish.isl"
 
 [CustomMessages]
 english.LaunchAtStartup=Start Proxy0x when Windows starts
-brazilianportuguese.LaunchAtStartup=Iniciar Proxy0x ao ligar o Windows
-portuguese.LaunchAtStartup=Iniciar Proxy0x ao arrancar o Windows
+brazilianportuguese.LaunchAtStartup=Iniciar o Proxy0x junto com o Windows
+portuguese.LaunchAtStartup=Iniciar o Proxy0x ao arrancar o Windows
 spanish.LaunchAtStartup=Iniciar Proxy0x al arrancar Windows
-french.LaunchAtStartup=Lancer Proxy0x au demarrage de Windows
+french.LaunchAtStartup=Lancer Proxy0x au démarrage de Windows
 german.LaunchAtStartup=Proxy0x beim Windows-Start starten
 italian.LaunchAtStartup=Avvia Proxy0x all'avvio di Windows
-russian.LaunchAtStartup=Zapuskat' Proxy0x pri zapuske Windows
-japanese.LaunchAtStartup=Windows kidou ji ni Proxy0x wo kidou suru
-korean.LaunchAtStartup=Windows sijaksi Proxy0x siljang
-arabic.LaunchAtStartup=Tashghil Proxy0x ind bida' tashghil Windows
-turkish.LaunchAtStartup=Windows basladiginda Proxy0x'i baslat
-thai.LaunchAtStartup=Roem Proxy0x mua Windows roem thamngan
-polish.LaunchAtStartup=Uruchom Proxy0x przy starcie Windows
+russian.LaunchAtStartup=Запускать Proxy0x при запуске Windows
+japanese.LaunchAtStartup=Windows の起動時に Proxy0x を起動する
+korean.LaunchAtStartup=Windows 시작 시 Proxy0x 실행
+arabic.LaunchAtStartup=تشغيل Proxy0x عند بدء تشغيل Windows
+turkish.LaunchAtStartup=Windows başladığında Proxy0x'i başlat
+thai.LaunchAtStartup=เปิด Proxy0x เมื่อเริ่ม Windows
+polish.LaunchAtStartup=Uruchamiaj Proxy0x przy starcie systemu Windows
 
 english.CreateDesktopShortcut=Create a desktop shortcut
-brazilianportuguese.CreateDesktopShortcut=Criar atalho na area de trabalho
+brazilianportuguese.CreateDesktopShortcut=Criar atalho na área de trabalho
 portuguese.CreateDesktopShortcut=Criar atalho no ambiente de trabalho
 spanish.CreateDesktopShortcut=Crear acceso directo en el escritorio
-french.CreateDesktopShortcut=Creer un raccourci sur le bureau
-german.CreateDesktopShortcut=Desktop-Verknuepfung erstellen
+french.CreateDesktopShortcut=Créer un raccourci sur le bureau
+german.CreateDesktopShortcut=Desktop-Verknüpfung erstellen
 italian.CreateDesktopShortcut=Crea collegamento sul desktop
-russian.CreateDesktopShortcut=Sozdat' yarlyk na rabochem stole
-japanese.CreateDesktopShortcut=Desukutoppu ni shotokattu wo sakusei
-korean.CreateDesktopShortcut=Bataseu hwamyeon-e barogagi mandeulgi
-arabic.CreateDesktopShortcut=Insha' ikhtisaar ala sath al-maktab
-turkish.CreateDesktopShortcut=Masaustune kisayol olustur
-thai.CreateDesktopShortcut=Sangthang lad bon natha chob
-polish.CreateDesktopShortcut=Utworz skrot na pulpicie
+russian.CreateDesktopShortcut=Создать ярлык на рабочем столе
+japanese.CreateDesktopShortcut=デスクトップにショートカットを作成する
+korean.CreateDesktopShortcut=바탕 화면에 바로 가기 만들기
+arabic.CreateDesktopShortcut=إنشاء اختصار على سطح المكتب
+turkish.CreateDesktopShortcut=Masaüstüne kısayol oluştur
+thai.CreateDesktopShortcut=สร้างทางลัดบนเดสก์ท็อป
+polish.CreateDesktopShortcut=Utwórz skrót na pulpicie
+
+english.RemoveUserData=Also delete saved proxies and settings (AppData\Roaming\Proxy0x)?
+brazilianportuguese.RemoveUserData=Apagar também os proxies e as configurações salvos (AppData\Roaming\Proxy0x)?
+portuguese.RemoveUserData=Apagar também os proxies e as definições guardados (AppData\Roaming\Proxy0x)?
+spanish.RemoveUserData=¿Eliminar también los proxies y la configuración guardados (AppData\Roaming\Proxy0x)?
+french.RemoveUserData=Supprimer aussi les proxys et les paramètres enregistrés (AppData\Roaming\Proxy0x) ?
+german.RemoveUserData=Gespeicherte Proxys und Einstellungen ebenfalls löschen (AppData\Roaming\Proxy0x)?
+italian.RemoveUserData=Eliminare anche i proxy e le impostazioni salvati (AppData\Roaming\Proxy0x)?
+russian.RemoveUserData=Удалить также сохранённые прокси и настройки (AppData\Roaming\Proxy0x)?
+japanese.RemoveUserData=保存されたプロキシと設定 (AppData\Roaming\Proxy0x) も削除しますか?
+korean.RemoveUserData=저장된 프록시와 설정(AppData\Roaming\Proxy0x)도 삭제하시겠습니까?
+arabic.RemoveUserData=هل تريد أيضًا حذف الوكلاء والإعدادات المحفوظة (AppData\Roaming\Proxy0x)؟
+turkish.RemoveUserData=Kayıtlı proxy'ler ve ayarlar da silinsin mi (AppData\Roaming\Proxy0x)?
+thai.RemoveUserData=ลบพร็อกซีและการตั้งค่าที่บันทึกไว้ (AppData\Roaming\Proxy0x) ด้วยหรือไม่?
+polish.RemoveUserData=Usunąć także zapisane proxy i ustawienia (AppData\Roaming\Proxy0x)?
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopShortcut}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -80,6 +102,7 @@ Name: "launchstartup"; Description: "{cm:LaunchAtStartup}"
 
 [Files]
 Source: "build\bin\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "build\bin\{#MyMCPExeName}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -91,3 +114,11 @@ Root: HKCU; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if (CurUninstallStep = usPostUninstall) and not UninstallSilent then
+    if MsgBox(CustomMessage('RemoveUserData'), mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+      DelTree(ExpandConstant('{userappdata}\Proxy0x'), True, True, True);
+end;

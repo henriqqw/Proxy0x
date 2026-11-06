@@ -1,8 +1,12 @@
 name: Release
 
+# Releases are cut by pushing a version tag (git tag v1.2.3 && git push origin v1.2.3).
+# Pushing to main never publishes anything. workflow_dispatch builds the
+# artifacts without publishing, to validate the pipeline.
 on:
   push:
-    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -11,149 +15,70 @@ jobs:
   release:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Determine next version
-        id: version
-        shell: bash
-        run: |
-          LATEST=$(git tag -l 'v*' --sort=-v:refname | head -1)
-          if [ -z "$LATEST" ]; then
-            NEXT="v1.0.0"
-          else
-            MAJOR=$(echo "$LATEST" | sed 's/v//' | cut -d. -f1)
-            MINOR=$(echo "$LATEST" | sed 's/v//' | cut -d. -f2)
-            PATCH=$(echo "$LATEST" | sed 's/v//' | cut -d. -f3)
-            PATCH=$((PATCH + 1))
-            NEXT="v${MAJOR}.${MINOR}.${PATCH}"
-          fi
-          echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
-          echo "version=${NEXT#v}" >> "$GITHUB_OUTPUT"
-          echo "Next version: $NEXT"
-
-      - name: Check if release needed
-        id: check
-        shell: bash
-        run: |
-          LATEST=$(git tag -l 'v*' --sort=-v:refname | head -1)
-          if [ -z "$LATEST" ]; then
-            echo "needed=true" >> "$GITHUB_OUTPUT"
-          else
-            CHANGES=$(git log "$LATEST"..HEAD --oneline | wc -l)
-            if [ "$CHANGES" -gt 0 ]; then
-              echo "needed=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "needed=false" >> "$GITHUB_OUTPUT"
-            fi
-          fi
-
-      - name: Setup Go
-        if: steps.check.outputs.needed == 'true'
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
 
-      - name: Setup Node
-        if: steps.check.outputs.needed == 'true'
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '20'
 
       - name: Install Wails
-        if: steps.check.outputs.needed == 'true'
-        shell: bash
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
 
-      - name: Install NSIS
-        if: steps.check.outputs.needed == 'true'
-        shell: pwsh
-        run: choco install nsis -y
-
-      - name: Update version in wails.json
-        if: steps.check.outputs.needed == 'true'
+      - name: Version
+        id: version
         shell: bash
         run: |
-          VERSION=${{ steps.version.outputs.version }}
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.0.0-dev"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           sed -i "s/\"productVersion\": \".*\"/\"productVersion\": \"$VERSION\"/" wails.json
 
-      - name: Build amd64 (64-bit) with installer
-        if: steps.check.outputs.needed == 'true'
-        shell: bash
+      - name: Build app
+        run: wails build -ldflags "-s -w" -platform windows/amd64
+
+      - name: Build MCP server
+        run: go build -ldflags "-s -w" -o build/bin/proxy0x-mcp.exe ./cmd/proxy0x-mcp
+
+      - name: Test
         run: |
-          export PATH="/c/Program Files (x86)/NSIS:/c/Program Files/NSIS:$PATH"
-          wails build -nsis -windowsconsole=false -platform windows/amd64
-          cp build/bin/Proxy0x.exe build/bin/Proxy0x-win64.exe
-          mv build/bin/Proxy0x-amd64-installer.exe build/bin/Proxy0x-win64-installer.exe
+          go vet ./...
+          go test ./...
 
-      - name: Build 386 (32-bit) portable
-        if: steps.check.outputs.needed == 'true'
-        shell: bash
+      - name: Build installer
+        shell: pwsh
         run: |
-          wails build -windowsconsole=false -platform windows/386 -skipbindings
-          mv build/bin/Proxy0x.exe build/bin/Proxy0x-win32.exe
+          choco install innosetup -y --no-progress
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.version.outputs.version }}" build\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build arm64 portable
-        if: steps.check.outputs.needed == 'true'
-        shell: bash
-        run: |
-          wails build -windowsconsole=false -platform windows/arm64 -skipbindings
-          mv build/bin/Proxy0x.exe build/bin/Proxy0x-arm64.exe
-
-      - name: List artifacts
-        if: steps.check.outputs.needed == 'true'
-        shell: bash
-        run: ls -la build/bin/
-
-      - name: Generate changelog
-        if: steps.check.outputs.needed == 'true'
-        id: changelog
-        shell: bash
-        run: |
-          LATEST=$(git tag -l 'v*' --sort=-v:refname | head -1)
-          {
-            echo 'body<<CHANGELOG_EOF'
-            echo "## Downloads"
-            echo ""
-            echo "| File | Description |"
-            echo "|------|-------------|"
-            echo "| \`Proxy0x-win64-installer.exe\` | Windows 64-bit installer (recommended) |"
-            echo "| \`Proxy0x-win64.exe\` | Windows 64-bit portable |"
-            echo "| \`Proxy0x-win32.exe\` | Windows 32-bit portable |"
-            echo "| \`Proxy0x-arm64.exe\` | Windows ARM64 portable |"
-            echo ""
-            echo "## What's Changed"
-            echo ""
-            if [ -z "$LATEST" ]; then
-              git log --oneline --pretty=format:"- %s" | head -30
-            else
-              git log "$LATEST"..HEAD --oneline --pretty=format:"- %s"
-            fi
-            echo ""
-            echo ""
-            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LATEST:-initial}...${{ steps.version.outputs.tag }}"
-            echo 'CHANGELOG_EOF'
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Create tag
-        if: steps.check.outputs.needed == 'true'
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag ${{ steps.version.outputs.tag }}
-          git push origin ${{ steps.version.outputs.tag }}
-
-      - name: Create release
-        if: steps.check.outputs.needed == 'true'
-        uses: softprops/action-gh-release@v2
+      - name: Upload artifacts (dry run)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Proxy0x ${{ steps.version.outputs.tag }}
-          body: ${{ steps.changelog.outputs.body }}
-          files: |
-            build/bin/Proxy0x-win64-installer.exe
-            build/bin/Proxy0x-win64.exe
-            build/bin/Proxy0x-win32.exe
-            build/bin/Proxy0x-arm64.exe
+          name: proxy0x-${{ steps.version.outputs.version }}
+          path: |
+            build/installer/Proxy0x-Setup-${{ steps.version.outputs.version }}.exe
+            build/bin/Proxy0x.exe
+            build/bin/proxy0x-mcp.exe
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Proxy0x $GITHUB_REF_NAME" \
+            --generate-notes \
+            --latest \
+            "build/installer/Proxy0x-Setup-$VERSION.exe" \
+            build/bin/Proxy0x.exe \
+            build/bin/proxy0x-mcp.exe
