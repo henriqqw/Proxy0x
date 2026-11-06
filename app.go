@@ -138,8 +138,10 @@ func (a *App) view(p *ProxyEntry) *ProxyEntry {
 	return snapshot(p)
 }
 
+// snapshot is the UI's copy of p. The password never leaves the backend.
 func snapshot(p *ProxyEntry) *ProxyEntry {
 	c := *p
+	c.Password = ""
 	if p.Location != nil {
 		loc := *p.Location
 		c.Location = &loc

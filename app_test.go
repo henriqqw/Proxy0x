@@ -125,6 +125,41 @@ func addTestProxy(t *testing.T, a *App, host, port string) *ProxyEntry {
 	return a.proxies[p.ID] // the internal entry, not the UI copy
 }
 
+func TestPasswordNeverReachesTheUI(t *testing.T) {
+	a, _ := newTestApp(t)
+	var mu sync.Mutex
+	var emitted []*ProxyEntry
+	a.emit = func(_ context.Context, name string, data ...interface{}) {
+		if name == "proxy-updated" {
+			mu.Lock()
+			emitted = append(emitted, data[0].(*ProxyEntry))
+			mu.Unlock()
+		}
+	}
+	_, host, port := startFakeUpstream(t)
+	p := addTestProxy(t, a, host, port)
+	returned, err := a.ConnectProxy(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seen := append([]*ProxyEntry{returned, a.GetProxies()[0]}, emitted...)
+	for _, v := range seen {
+		if v.Password != "" {
+			t.Fatalf("password sent to the webview: %+v", v)
+		}
+	}
+	if p.Password != "pass" {
+		t.Fatal("backend must keep the password")
+	}
+	a2, _ := newTestApp(t)
+	a2.dataFile, a2.crypt = a.dataFile, a.crypt
+	a2.loadProxies()
+	if a2.proxies[p.ID].Password != "pass" {
+		t.Fatal("password must still be persisted")
+	}
+}
+
 func TestBindingsAndEventsReturnCopies(t *testing.T) {
 	a, _ := newTestApp(t)
 	var mu sync.Mutex
