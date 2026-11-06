@@ -1,6 +1,32 @@
 package proxycore
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"proxy_ui/internal/crypto"
+)
+
+// The desktop app migrates .key to DPAPI; the MCP store must read that key
+// and never replace it.
+func TestStoreReadsTheAppsDPAPIKeyWithoutReplacingIt(t *testing.T) {
+	dir := t.TempDir()
+	enc, err := crypto.NewStore(dir).Encrypt("app-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyBefore, _ := os.ReadFile(filepath.Join(dir, ".key"))
+
+	dec, err := NewStore(dir).decrypt(enc)
+	if err != nil || dec != "app-secret" {
+		t.Fatalf("MCP store decrypt = %q, %v", dec, err)
+	}
+	keyAfter, _ := os.ReadFile(filepath.Join(dir, ".key"))
+	if string(keyAfter) != string(keyBefore) {
+		t.Fatal("MCP store replaced the app's key file: saved credentials would become unreadable")
+	}
+}
 
 func TestStoreEncryptDecrypt(t *testing.T) {
 	store := NewStore(t.TempDir())
