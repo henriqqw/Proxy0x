@@ -337,7 +337,7 @@ func TestHealthCheckFailsOnNon200(t *testing.T) {
 	}
 	up.set(503, ``)
 
-	a.CheckHealth(p.ID)
+	a.checkHealth(p.ID)
 
 	if p.Status != StatusError {
 		t.Fatalf("status=%s, want error", p.Status)
@@ -473,9 +473,9 @@ func TestHealthCheckRecoversStatusAfterTransientFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	up.set(503, ``)
-	a.CheckHealth(p.ID)
+	a.checkHealth(p.ID)
 	up.set(200, `{"ip":"203.0.113.7"}`)
-	a.CheckHealth(p.ID)
+	a.checkHealth(p.ID)
 
 	if p.Status != StatusConnected {
 		t.Fatalf("status=%s after a successful check, want connected", p.Status)
@@ -494,7 +494,7 @@ func TestHealthCheckDoesNotHoldLockDuringGeoLookup(t *testing.T) {
 	up.geoDelay = 500 * time.Millisecond
 	up.mu.Unlock()
 
-	go a.CheckHealth(p.ID)
+	go a.checkHealth(p.ID)
 	time.Sleep(150 * time.Millisecond) // health check is now inside the geo lookup
 
 	start := time.Now()

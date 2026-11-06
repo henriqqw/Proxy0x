@@ -206,26 +206,13 @@ func (a *App) shutdown(ctx context.Context) {
 
 func (a *App) MinimizeWindow() { runtime.WindowMinimise(a.ctx) }
 func (a *App) CloseWindow()    { runtime.WindowHide(a.ctx) }
-func (a *App) ShowWindow()     { runtime.WindowShow(a.ctx) }
 func (a *App) ToggleMaximize() { runtime.WindowToggleMaximise(a.ctx) }
-
-func (a *App) QuitApp() {
-	a.lpMu.Lock()
-	if a.localProxy != nil {
-		a.localProxy.Stop()
-		a.localProxy = nil
-	}
-	a.lpMu.Unlock()
-	a.sysproxy.Clear()
-	runtime.Quit(a.ctx)
-}
 
 // --- Config ---
 
-func (a *App) GetLanguage() string         { return config.Load().Language }
-func (a *App) GetTheme() string            { return config.Load().Theme }
-func (a *App) GetAutoRotateInterval() int  { return config.Load().AutoRotateInterval }
-func (a *App) GetHealthCheckInterval() int { return config.Load().HealthCheckInterval }
+func (a *App) GetLanguage() string        { return config.Load().Language }
+func (a *App) GetTheme() string           { return config.Load().Theme }
+func (a *App) GetAutoRotateInterval() int { return config.Load().AutoRotateInterval }
 
 func (a *App) SetLanguage(lang string) {
 	cfg := config.Load()
@@ -244,16 +231,6 @@ func (a *App) SetTheme(theme string) {
 func (a *App) SetAutoRotateInterval(seconds int) {
 	cfg := config.Load()
 	cfg.AutoRotateInterval = seconds
-	config.Save(cfg)
-	a.emitEvent("config-changed", cfg)
-}
-
-func (a *App) SetHealthCheckInterval(seconds int) {
-	if seconds < 60 {
-		seconds = 60
-	}
-	cfg := config.Load()
-	cfg.HealthCheckInterval = seconds
 	config.Save(cfg)
 	a.emitEvent("config-changed", cfg)
 }
@@ -620,36 +597,6 @@ func (a *App) SetProxyGroup(id, group string) (*ProxyEntry, error) {
 	return a.view(p), nil
 }
 
-func (a *App) ConnectGroup(group string) error {
-	a.mu.RLock()
-	var ids []string
-	for id, p := range a.proxies {
-		if p.Group == group && !p.Active {
-			ids = append(ids, id)
-		}
-	}
-	a.mu.RUnlock()
-	for _, id := range ids {
-		a.ConnectProxy(id)
-	}
-	return nil
-}
-
-func (a *App) DisconnectGroup(group string) error {
-	a.mu.RLock()
-	var ids []string
-	for id, p := range a.proxies {
-		if p.Group == group && p.Active {
-			ids = append(ids, id)
-		}
-	}
-	a.mu.RUnlock()
-	for _, id := range ids {
-		a.DisconnectProxy(id)
-	}
-	return nil
-}
-
 // --- Connection ---
 
 func (a *App) buildProxyURL(p *ProxyEntry) string {
@@ -993,14 +940,9 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 	return a.view(p), nil
 }
 
-func (a *App) RestartProxy(id string) (*ProxyEntry, error) {
-	a.DisconnectProxy(id)
-	return a.ConnectProxy(id)
-}
-
 // --- Health & rotation ---
 
-func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
+func (a *App) checkHealth(id string) (*ProxyEntry, error) {
 	a.mu.RLock()
 	p, ok := a.proxies[id]
 	if !ok || !p.Active {
@@ -1136,7 +1078,7 @@ func (a *App) healthCheckLoop() {
 					return
 				default:
 				}
-				a.CheckHealth(id)
+				a.checkHealth(id)
 				if i < len(activeIDs)-1 {
 					time.Sleep(1500 * time.Millisecond)
 				}

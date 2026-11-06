@@ -26,10 +26,6 @@ export function CheckDNSLeak() {
   return window['go']['main']['App']['CheckDNSLeak']();
 }
 
-export function CheckHealth(arg1) {
-  return window['go']['main']['App']['CheckHealth'](arg1);
-}
-
 export function CheckMCPHealth() {
   return window['go']['main']['App']['CheckMCPHealth']();
 }
@@ -42,16 +38,8 @@ export function ConnectFastest() {
   return window['go']['main']['App']['ConnectFastest']();
 }
 
-export function ConnectGroup(arg1) {
-  return window['go']['main']['App']['ConnectGroup'](arg1);
-}
-
 export function ConnectProxy(arg1) {
   return window['go']['main']['App']['ConnectProxy'](arg1);
-}
-
-export function DisconnectGroup(arg1) {
-  return window['go']['main']['App']['DisconnectGroup'](arg1);
 }
 
 export function DisconnectProxy(arg1) {
@@ -80,10 +68,6 @@ export function GetConnectionLog() {
 
 export function GetGroups() {
   return window['go']['main']['App']['GetGroups']();
-}
-
-export function GetHealthCheckInterval() {
-  return window['go']['main']['App']['GetHealthCheckInterval']();
 }
 
 export function GetKillSwitch() {
@@ -118,20 +102,12 @@ export function MinimizeWindow() {
   return window['go']['main']['App']['MinimizeWindow']();
 }
 
-export function QuitApp() {
-  return window['go']['main']['App']['QuitApp']();
-}
-
 export function RemoveProxy(arg1) {
   return window['go']['main']['App']['RemoveProxy'](arg1);
 }
 
 export function ReorderProxies(arg1) {
   return window['go']['main']['App']['ReorderProxies'](arg1);
-}
-
-export function RestartProxy(arg1) {
-  return window['go']['main']['App']['RestartProxy'](arg1);
 }
 
 export function RotateProxy(arg1) {
@@ -144,10 +120,6 @@ export function SetAutoFailover(arg1) {
 
 export function SetAutoRotateInterval(arg1) {
   return window['go']['main']['App']['SetAutoRotateInterval'](arg1);
-}
-
-export function SetHealthCheckInterval(arg1) {
-  return window['go']['main']['App']['SetHealthCheckInterval'](arg1);
 }
 
 export function SetKillSwitch(arg1) {
@@ -168,10 +140,6 @@ export function SetProxyName(arg1, arg2) {
 
 export function SetTheme(arg1) {
   return window['go']['main']['App']['SetTheme'](arg1);
-}
-
-export function ShowWindow() {
-  return window['go']['main']['App']['ShowWindow']();
 }
 
 export function ToggleMaximize() {
