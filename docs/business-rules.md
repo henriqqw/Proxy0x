@@ -76,8 +76,11 @@ Uses AES-256-GCM with a per-machine key stored at `%AppData%/Proxy0x/.key`.
 Proxies are stored in `%AppData%/Proxy0x/proxies.json` as a JSON array.
 
 - Auto-saved after every add, remove, or update operation.
+- Writes are atomic: the new content goes to `proxies.json.tmp` and is renamed over `proxies.json`; the previous version is kept as `proxies.json.bak`. `config.json` is written the same way.
 - On load, all proxies have `Status` reset to `offline` and `Active` set to `false` (no stale connected state after a crash).
 - Credentials are encrypted at rest; decrypted transparently on load.
+- If `proxies.json` exists but cannot be read (invalid JSON or credentials that fail to decrypt), the store becomes **read-only** for the session: nothing is saved over the file, mutating calls return an error and a `store-error` event is emitted. A missing file is a normal first run.
+- Only the desktop app writes `proxies.json`. The MCP server reads it and never saves (see `docs/mcp.md`).
 
 ## Log Ring Buffer
 

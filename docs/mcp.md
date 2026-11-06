@@ -31,8 +31,10 @@ Both the Wails desktop app and the MCP server read and write the same AES-256-GC
 | `proxy_connect` | `id` | Connect a proxy by ID. Verifies IP via api.ipify.org. |
 | `proxy_disconnect` | `id` | Disconnect a proxy by ID. |
 | `proxy_rotate` | `id` | Generate a new session ID for the proxy, getting a different IP. |
-| `proxy_add` | `proxy` (host:port[:user:pass]) | Parse and add a proxy to the pool. Supports `socks5://` prefix. |
-| `proxy_remove` | `id` | Remove a proxy from the pool. |
+| `proxy_add` | `proxy` (host:port[:user:pass]) | **Read-only server:** always returns an error asking to add proxies in the Proxy0x app. |
+| `proxy_remove` | `id` | **Read-only server:** always returns an error asking to remove proxies in the Proxy0x app. |
+
+The MCP server never writes `proxies.json`. The desktop app owns the file; two processes rewriting it would silently undo each other's changes. Connect, disconnect and rotate only change the MCP server's in-memory state.
 | `proxy_health` | — | Health-check all active proxies. Returns per-proxy results. |
 
 ### Proxy selection
@@ -86,7 +88,7 @@ The Wails app provides a toggle in **Settings → Claude MCP** that:
      }
    }
    ```
-   Preserves any existing entries in the config file.
+   Preserves any existing entries in the config file. If the existing file is not valid JSON the install aborts with an error and the file is left untouched. Before writing, a backup is saved as `<file>.proxy0x.bak`, and the write is atomic (temp file + rename).
 
 2. **`CheckMCPHealth()`** — spawns the MCP binary, sends a JSON-RPC `initialize` request, and verifies a valid response within 5 seconds.
 

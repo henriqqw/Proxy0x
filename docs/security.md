@@ -24,8 +24,9 @@ Proxy credentials (username and password) are encrypted at rest using **AES-256-
 
 ### Store lifecycle
 
-1. **Save:** encrypt username and password, strip runtime state (status, currentIp, active), write JSON
-2. **Load:** read JSON, decrypt credentials, reset all proxies to `offline` / `active: false`
+1. **Save:** encrypt username and password, strip runtime state (status, currentIp, active), write JSON atomically (temp file + rename, previous version kept as `.bak`)
+2. **Load:** read JSON, decrypt credentials, reset all proxies to `offline` / `active: false`. A decryption failure is a load error: the store goes read-only instead of re-encrypting ciphertext as if it were plaintext.
+3. **Writers:** only the desktop app saves `proxies.json`; the MCP server is read-only.
 
 ## SSRF protection
 
