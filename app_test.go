@@ -218,6 +218,66 @@ func TestHealthCheckFailsOnNon200(t *testing.T) {
 	}
 }
 
+func silentListener(t *testing.T) (host, port string) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { c.Close() })
+		}
+	}()
+	host, port, _ = net.SplitHostPort(ln.Addr().String())
+	return host, port
+}
+
+func returnsWithin(t *testing.T, limit time.Duration, fn func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { fn(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(limit):
+		t.Fatalf("still blocked after %v", limit)
+	}
+}
+
+func TestSOCKS5DialHonorsContext(t *testing.T) {
+	a, _ := newTestApp(t)
+	host, port := silentListener(t)
+	p := &ProxyEntry{ID: "s", Host: host, Port: port, Protocol: "socks5", SessionID: "x"}
+	tr := a.getOrCreateClient(p).Transport.(*http.Transport)
+
+	returnsWithin(t, time.Second, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		if _, err := tr.DialContext(ctx, "tcp", "example.com:80"); err == nil {
+			t.Error("dial through a silent SOCKS5 upstream should fail")
+		}
+	})
+}
+
+func TestGetMyIPTimesOut(t *testing.T) {
+	a, _ := newTestApp(t)
+	host, port := silentListener(t)
+	oldURL, oldTimeout := myIPURL, myIPTimeout
+	myIPURL, myIPTimeout = "http://"+net.JoinHostPort(host, port)+"/", 200*time.Millisecond
+	t.Cleanup(func() { myIPURL, myIPTimeout = oldURL, oldTimeout })
+
+	returnsWithin(t, time.Second, func() {
+		if _, err := a.GetMyIP(); err == nil {
+			t.Error("GetMyIP against a silent server should fail")
+		}
+	})
+}
+
 func TestFailedRotationKeepsPreviousSession(t *testing.T) {
 	a, _ := newTestApp(t)
 	up, host, port := startFakeUpstream(t)

@@ -80,6 +80,9 @@ var (
 	myIPURL      = "https://api.ipify.org?format=text"
 	geoURLFormat = "https://ipwho.is/%s"
 	speedTestURL = "https://speed.cloudflare.com/__down?bytes=102400"
+	myIPTimeout  = 10 * time.Second
+
+	newSOCKS5 = netproxy.SOCKS5
 )
 
 type systemProxy interface {
@@ -546,14 +549,20 @@ func (a *App) getOrCreateClient(p *ProxyEntry) *http.Client {
 		if username != "" {
 			auth = &netproxy.Auth{User: username, Password: p.Password}
 		}
-		dialer, err := netproxy.SOCKS5("tcp", net.JoinHostPort(p.Host, p.Port), auth, netproxy.Direct)
+		var dialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+		dialer, err := newSOCKS5("tcp", net.JoinHostPort(p.Host, p.Port), auth, &net.Dialer{Timeout: 15 * time.Second})
 		if err != nil {
 			dialer = netproxy.Direct
 		}
-		transport = &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if cd, ok := dialer.(netproxy.ContextDialer); ok {
+			dialContext = cd.DialContext
+		} else {
+			dialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 				return dialer.Dial(network, addr)
-			},
+			}
+		}
+		transport = &http.Transport{
+			DialContext:         dialContext,
 			TLSHandshakeTimeout: 10 * time.Second,
 			MaxIdleConns:        2,
 			IdleConnTimeout:     90 * time.Second,
@@ -1056,7 +1065,7 @@ func (a *App) BenchmarkProxy(id string) (map[string]interface{}, error) {
 // --- Public IP ---
 
 func (a *App) GetMyIP() (string, error) {
-	resp, err := http.Get(myIPURL)
+	resp, err := (&http.Client{Timeout: myIPTimeout}).Get(myIPURL)
 	if err != nil {
 		return "", err
 	}
