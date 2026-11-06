@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"proxy_ui/internal/fsutil"
 )
 
 type MCPClientInfo struct {
@@ -133,12 +135,26 @@ func hasProxy0x(cfg map[string]any) bool {
 	return ok
 }
 
-func addProxy0x(path, exePath string) error {
-	os.MkdirAll(filepath.Dir(path), 0o755)
+// writeClientConfig never leaves another app's config truncated and keeps
+// the previous version next to it.
+func writeClientConfig(path string, cfg map[string]any) error {
+	out, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	return fsutil.WriteFileAtomicWithBackup(path, path+".proxy0x.bak", out, 0o644)
+}
 
+func addProxy0x(path, exePath string) error {
 	var cfg map[string]any
-	if data, err := os.ReadFile(path); err == nil {
-		json.Unmarshal(data, &cfg)
+	data, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return fmt.Errorf("%s is not valid JSON, refusing to overwrite it: %w", path, err)
+		}
+	case !os.IsNotExist(err):
+		return err
 	}
 	if cfg == nil {
 		cfg = make(map[string]any)
@@ -153,12 +169,7 @@ func addProxy0x(path, exePath string) error {
 		"args":    []string{},
 	}
 	cfg["mcpServers"] = servers
-
-	out, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-	return os.WriteFile(path, out, 0o644)
+	return writeClientConfig(path, cfg)
 }
 
 func removeProxy0x(path string) error {
@@ -176,12 +187,7 @@ func removeProxy0x(path string) error {
 	}
 	delete(servers, "proxy0x")
 	cfg["mcpServers"] = servers
-
-	out, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-	return os.WriteFile(path, out, 0o644)
+	return writeClientConfig(path, cfg)
 }
 
 func (a *App) GetMCPStatus() MCPStatus {

@@ -8,11 +8,16 @@ import (
 // WriteFileAtomic writes data to path via a temp file and rename, so a crash
 // never leaves a truncated file. The previous content is kept as path+".bak".
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
+	return WriteFileAtomicWithBackup(path, path+".bak", data, perm)
+}
+
+// WriteFileAtomicWithBackup is WriteFileAtomic with an explicit backup path.
+func WriteFileAtomicWithBackup(path, backup string, data []byte, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	if old, err := os.ReadFile(path); err == nil {
-		if err := os.WriteFile(path+".bak", old, perm); err != nil {
+		if err := os.WriteFile(backup, old, perm); err != nil {
 			return err
 		}
 	}
