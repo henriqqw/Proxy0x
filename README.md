@@ -1,4 +1,6 @@
-# Proxy0x
+<p align="center">
+  <img src="assets/banner.png" alt="Proxy0x" width="700">
+</p>
 
 <p align="center"><img src="assets/branding/proxy0x-banner.png" alt="Proxy0x — gerenciador de proxies" width="100%"></p>
 
