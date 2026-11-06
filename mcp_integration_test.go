@@ -1,11 +1,54 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+func TestMain(m *testing.M) {
+	if os.Getenv("PROXY0X_FAKE_MCP") == "1" {
+		fakeMCPServer()
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+// fakeMCPServer behaves like servers that stop on stdin EOF before replying:
+// it answers initialize only if stdin is still open shortly after the request.
+func fakeMCPServer() {
+	r := bufio.NewReader(os.Stdin)
+	if _, err := r.ReadString('\n'); err != nil {
+		return
+	}
+	eof := make(chan struct{})
+	go func() {
+		if _, err := r.ReadByte(); err != nil {
+			close(eof)
+		}
+	}()
+	select {
+	case <-eof:
+		return
+	case <-time.After(200 * time.Millisecond):
+		os.Stdout.WriteString(`{"jsonrpc":"2.0","id":1,"result":{}}` + "\n")
+	}
+	time.Sleep(time.Second)
+}
+
+func TestCheckMCPHealthWaitsForTheResponse(t *testing.T) {
+	t.Setenv("PROXY0X_FAKE_MCP", "1")
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkMCPHealth(exe); err != nil {
+		t.Fatalf("healthy server reported unhealthy: %v", err)
+	}
+}
 
 func TestAddProxy0xRefusesToOverwriteInvalidJSON(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "claude_desktop_config.json")

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"proxy_ui/internal/fsutil"
@@ -249,52 +251,64 @@ func (a *App) CheckMCPHealth() MCPStatus {
 }
 
 // checkMCPHealth starts the MCP server and expects a JSON-RPC initialize result.
+// checkMCPHealth starts the MCP server and expects a JSON-RPC initialize
+// result. Stdin stays open until the reply arrives: stdio servers may exit on
+// EOF before answering.
 func checkMCPHealth(exePath string) error {
 	cmd := exec.Command(exePath)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000} // CREATE_NO_WINDOW
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("pipe error: %v", err)
 	}
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = nil
-
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("pipe error: %v", err)
+	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start: %v", err)
 	}
+	defer func() {
+		stdin.Close()
+		cmd.Process.Kill()
+		cmd.Wait()
+	}()
 
 	initReq := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"proxy0x-healthcheck","version":"1.0.0"}}}` + "\n"
-	stdin.Write([]byte(initReq))
-	stdin.Close()
-
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-		cmd.Process.Kill()
-		<-done
-	case <-done:
+	if _, err := stdin.Write([]byte(initReq)); err != nil {
+		return fmt.Errorf("write initialize: %v", err)
 	}
 
-	if stdout.Len() == 0 {
-		return errors.New("no response from server")
-	}
-
-	for _, line := range bytes.Split(stdout.Bytes(), []byte("\n")) {
-		line = bytes.TrimSpace(line)
-		if len(line) == 0 {
-			continue
-		}
-		var resp map[string]any
-		if json.Unmarshal(line, &resp) == nil {
-			if _, ok := resp["result"]; ok {
-				return nil
+	result := make(chan error, 1)
+	go func() {
+		sc := bufio.NewScanner(stdout)
+		sc.Buffer(make([]byte, 64*1024), 1024*1024)
+		sawOutput := false
+		for sc.Scan() {
+			line := bytes.TrimSpace(sc.Bytes())
+			if len(line) == 0 {
+				continue
+			}
+			sawOutput = true
+			var resp map[string]any
+			if json.Unmarshal(line, &resp) == nil {
+				if _, ok := resp["result"]; ok {
+					result <- nil
+					return
+				}
 			}
 		}
+		if sawOutput {
+			result <- errors.New("invalid response from server")
+		} else {
+			result <- errors.New("no response from server")
+		}
+	}()
+
+	select {
+	case err := <-result:
+		return err
+	case <-time.After(5 * time.Second):
+		return errors.New("no response from server within 5s")
 	}
-	return errors.New("invalid response from server")
 }
