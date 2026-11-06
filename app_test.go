@@ -218,6 +218,30 @@ func TestHealthCheckFailsOnNon200(t *testing.T) {
 	}
 }
 
+func TestFailedRotationKeepsPreviousSession(t *testing.T) {
+	a, _ := newTestApp(t)
+	up, host, port := startFakeUpstream(t)
+	p := addTestProxy(t, a, host, port)
+	if _, err := a.ConnectProxy(p.ID); err != nil {
+		t.Fatal(err)
+	}
+	session := p.SessionID
+	up.set(500, ``)
+
+	if _, err := a.RotateProxy(p.ID); err == nil {
+		t.Fatal("rotation should fail")
+	}
+	if p.SessionID != session {
+		t.Fatalf("session changed to %s on failed rotation (was %s)", p.SessionID, session)
+	}
+	if p.Status != StatusConnected || !p.Active {
+		t.Fatalf("status=%s active=%v, want previous connected/true", p.Status, p.Active)
+	}
+	if n := len(a.clients); n != 1 {
+		t.Fatalf("%d HTTP clients, want only the current session's", n)
+	}
+}
+
 func TestHealthCheckRecoversStatusAfterTransientFailure(t *testing.T) {
 	a, _ := newTestApp(t)
 	up, host, port := startFakeUpstream(t)

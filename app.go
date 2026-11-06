@@ -774,19 +774,21 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 		a.mu.Unlock()
 		return nil, fmt.Errorf("proxy not found")
 	}
-	oldKey := id + ":" + p.SessionID
-	a.closeClient(oldKey)
-	p.SessionID = generateSessionID()
+	oldSession := p.SessionID
+	prevStatus := p.Status
+	candidate := *p
+	candidate.SessionID = generateSessionID()
+	client := a.getOrCreateClient(&candidate)
 	p.Status = StatusConnecting
-	client := a.getOrCreateClient(p)
 	a.mu.Unlock()
 
 	a.emitEvent("proxy-updated", p)
 
 	ip, latency, err := verifyExitIP(client)
 	if err != nil {
+		a.closeClient(id + ":" + candidate.SessionID)
 		a.mu.Lock()
-		p.Status = StatusError
+		p.Status = prevStatus
 		a.mu.Unlock()
 		a.addLog("rotate-failed", id, p.Host+":"+p.Port, err.Error())
 		a.emitEvent("proxy-updated", p)
@@ -795,7 +797,9 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 
 	geo := a.fetchGeoInfo(client, ip)
 
+	a.closeClient(id + ":" + oldSession)
 	a.mu.Lock()
+	p.SessionID = candidate.SessionID
 	p.Status = StatusConnected
 	p.CurrentIP = ip
 	p.Latency = latency
