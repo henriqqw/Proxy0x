@@ -16,6 +16,7 @@ export default function FlagIcon({ countryCode, size = 14 }: Props) {
       title={countryCode.toUpperCase()}
       style={{ width: size, height: Math.round(size * 0.75), objectFit: 'cover', borderRadius: 2 }}
       draggable={false}
+      loading="lazy"
     />
   )
 }

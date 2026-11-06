@@ -14,9 +14,15 @@ export function ConnectProxy(arg1:string):Promise<main.ProxyEntry>;
 
 export function DisconnectProxy(arg1:string):Promise<main.ProxyEntry>;
 
+export function GetConnectionLog():Promise<Array<main.LogEntry>>;
+
+export function GetLanguage():Promise<string>;
+
 export function GetMyIP():Promise<string>;
 
 export function GetProxies():Promise<Array<main.ProxyEntry>>;
+
+export function GetTheme():Promise<string>;
 
 export function MinimizeWindow():Promise<void>;
 
@@ -24,9 +30,15 @@ export function QuitApp():Promise<void>;
 
 export function RemoveProxy(arg1:string):Promise<void>;
 
+export function ReorderProxies(arg1:Array<string>):Promise<void>;
+
 export function RestartProxy(arg1:string):Promise<main.ProxyEntry>;
 
 export function RotateProxy(arg1:string):Promise<main.ProxyEntry>;
+
+export function SetLanguage(arg1:string):Promise<void>;
+
+export function SetTheme(arg1:string):Promise<void>;
 
 export function ShowWindow():Promise<void>;
 

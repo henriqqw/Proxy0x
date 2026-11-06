@@ -1,6 +1,9 @@
 import { motion } from 'framer-motion'
+import { useTranslation } from '../i18n/LanguageContext'
 
 export default function EmptyState() {
+  const { t } = useTranslation()
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -17,10 +20,8 @@ export default function EmptyState() {
         transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
       />
       <div className="text-center space-y-1">
-        <p className="text-xs text-text-tertiary">Nenhuma proxy adicionada</p>
-        <p className="text-[10px] text-text-tertiary/50">
-          Adicione uma proxy acima para começar
-        </p>
+        <p className="text-xs text-text-tertiary">{t.noProxy}</p>
+        <p className="text-[10px] text-text-tertiary/50">{t.addProxyHint}</p>
       </div>
     </motion.div>
   )

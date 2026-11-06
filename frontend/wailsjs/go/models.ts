@@ -30,6 +30,26 @@ export namespace main {
 	        this.as = source["as"];
 	    }
 	}
+	export class LogEntry {
+	    time: string;
+	    action: string;
+	    proxyId: string;
+	    host: string;
+	    detail: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LogEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.time = source["time"];
+	        this.action = source["action"];
+	        this.proxyId = source["proxyId"];
+	        this.host = source["host"];
+	        this.detail = source["detail"];
+	    }
+	}
 	export class ProxyEntry {
 	    id: string;
 	    raw: string;
@@ -44,6 +64,9 @@ export namespace main {
 	    lastCheck: string;
 	    active: boolean;
 	    sessionId: string;
+	    order: number;
+	    connectedAt: string;
+	    totalUptime: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ProxyEntry(source);
@@ -64,6 +87,9 @@ export namespace main {
 	        this.lastCheck = source["lastCheck"];
 	        this.active = source["active"];
 	        this.sessionId = source["sessionId"];
+	        this.order = source["order"];
+	        this.connectedAt = source["connectedAt"];
+	        this.totalUptime = source["totalUptime"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

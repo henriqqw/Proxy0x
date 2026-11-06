@@ -2,12 +2,14 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, ClipboardPaste, ChevronDown } from 'lucide-react'
 import { AddProxy, AddProxiesBatch } from 'wailsjs/go/main/App'
+import { useTranslation } from '../i18n/LanguageContext'
 
 interface Props {
   onAdded: () => void
 }
 
 export default function ProxyForm({ onAdded }: Props) {
+  const { t } = useTranslation()
   const [input, setInput] = useState('')
   const [expanded, setExpanded] = useState(false)
   const [batch, setBatch] = useState('')
@@ -23,7 +25,7 @@ export default function ProxyForm({ onAdded }: Props) {
       setInput('')
       onAdded()
     } catch (e: any) {
-      setError(e?.message || 'Failed to add proxy')
+      setError(e?.message || t.failedAdd)
     } finally {
       setLoading(false)
     }
@@ -39,7 +41,7 @@ export default function ProxyForm({ onAdded }: Props) {
         setInput(text)
       }
     } catch {
-      setError('Clipboard access denied')
+      setError(t.clipboardDenied)
     }
   }
 
@@ -53,7 +55,7 @@ export default function ProxyForm({ onAdded }: Props) {
       setExpanded(false)
       onAdded()
     } catch (e: any) {
-      setError(e?.message || 'Failed to add proxies')
+      setError(e?.message || t.failedAddBatch)
     } finally {
       setLoading(false)
     }
@@ -86,7 +88,8 @@ export default function ProxyForm({ onAdded }: Props) {
             onClick={handlePaste}
             className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded
                        text-text-tertiary hover:text-text-primary hover:bg-surface-4 transition-colors"
-            title="Paste"
+            title={t.paste}
+            aria-label={t.paste}
           >
             <ClipboardPaste size={12} />
           </button>
@@ -94,13 +97,14 @@ export default function ProxyForm({ onAdded }: Props) {
         <button
           onClick={handleAdd}
           disabled={loading || !input.trim()}
+          aria-label={t.add}
           className="h-8 px-3 flex items-center gap-1.5 text-xs font-medium
-                     bg-text-primary border border-transparent rounded-lg
-                     text-surface-0 hover:bg-[#d4d4d4] font-semibold
+                     bg-btn-accent border border-transparent rounded-lg
+                     text-btn-accent-text hover:bg-btn-accent-hover font-semibold
                      disabled:opacity-30 disabled:cursor-not-allowed transition-all"
         >
           <Plus size={12} />
-          Add
+          {t.add}
         </button>
       </div>
 
@@ -109,7 +113,7 @@ export default function ProxyForm({ onAdded }: Props) {
         className="flex items-center gap-1 text-[10px] text-text-tertiary hover:text-text-secondary transition-colors"
       >
         <ChevronDown size={10} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
-        Batch import
+        {t.batchImport}
       </button>
 
       <AnimatePresence>
@@ -124,7 +128,7 @@ export default function ProxyForm({ onAdded }: Props) {
             <textarea
               value={batch}
               onChange={e => setBatch(e.target.value)}
-              placeholder="Paste multiple proxies, one per line..."
+              placeholder={t.batchPlaceholder}
               rows={4}
               className="w-full px-3 py-2 text-xs font-mono bg-surface-2 border border-border-default rounded-lg
                          text-text-primary placeholder:text-text-tertiary resize-none
@@ -137,7 +141,7 @@ export default function ProxyForm({ onAdded }: Props) {
                          text-text-secondary hover:text-text-primary hover:bg-surface-5
                          disabled:opacity-30 disabled:cursor-not-allowed transition-all"
             >
-              {loading ? 'Adding...' : 'Import All'}
+              {loading ? t.adding : t.importAll}
             </button>
           </motion.div>
         )}

@@ -3,13 +3,16 @@ import { motion } from 'framer-motion'
 import {
   Power, X, RotateCw,
   Trash2, Copy, MapPin, Clock, Wifi, Server,
-  ChevronDown, Activity, Building2
+  ChevronDown, Activity, Building2, GripVertical, Timer
 } from 'lucide-react'
 import {
   ConnectProxy, DisconnectProxy, RotateProxy,
   RemoveProxy
 } from 'wailsjs/go/main/App'
 import { main } from 'wailsjs/go/models'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { useTranslation } from '../i18n/LanguageContext'
 import StatusBadge from './StatusBadge'
 import FlagIcon from './FlagIcon'
 
@@ -18,10 +21,42 @@ interface Props {
   onRemoved: () => void
 }
 
+function formatUptime(totalSeconds: number, connectedAt?: string): string {
+  let seconds = totalSeconds
+  if (connectedAt) {
+    const start = new Date(connectedAt).getTime()
+    if (!isNaN(start)) {
+      seconds += Math.floor((Date.now() - start) / 1000)
+    }
+  }
+  if (seconds < 60) return `${seconds}s`
+  const mins = Math.floor(seconds / 60)
+  if (mins < 60) return `${mins}m ${seconds % 60}s`
+  const hrs = Math.floor(mins / 60)
+  return `${hrs}h ${mins % 60}m`
+}
+
 export default function ProxyCard({ proxy, onRemoved }: Props) {
+  const { t } = useTranslation()
   const [busy, setBusy] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: proxy.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    opacity: isDragging ? 0.5 : undefined,
+  }
 
   type Status = 'offline' | 'connecting' | 'connected' | 'error'
   const status = (proxy.status || 'offline') as Status
@@ -44,6 +79,8 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
 
   return (
     <motion.div
+      ref={setNodeRef}
+      style={style}
       layout
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
@@ -59,6 +96,15 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
       <div className="px-3 pt-3 pb-2">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2 min-w-0 flex-1">
+            <button
+              {...attributes}
+              {...listeners}
+              className="cursor-grab active:cursor-grabbing p-0.5 -ml-1 text-text-tertiary/30 hover:text-text-tertiary transition-colors touch-none"
+              tabIndex={-1}
+              aria-label="Drag to reorder"
+            >
+              <GripVertical size={12} />
+            </button>
             <StatusBadge status={status} />
             <span className="text-[10px] font-mono text-text-tertiary truncate">
               {proxy.host}:{proxy.port}
@@ -67,6 +113,7 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
           <button
             onClick={() => { RemoveProxy(proxy.id); onRemoved() }}
             className="p-1 rounded text-text-tertiary/40 hover:text-status-error hover:bg-surface-4 transition-all"
+            aria-label="Remove proxy"
           >
             <Trash2 size={11} />
           </button>
@@ -127,7 +174,7 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
           {!isActive && !isConnecting ? (
             <ControlBtn
               icon={<Power size={12} />}
-              label="Connect"
+              label={t.connect}
               onClick={() => action('connect', () => ConnectProxy(proxy.id))}
               busy={busy === 'connect'}
               accent
@@ -135,18 +182,25 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
           ) : (
             <ControlBtn
               icon={<X size={12} />}
-              label="Stop"
+              label={t.stop}
               onClick={() => action('disconnect', () => DisconnectProxy(proxy.id))}
               busy={busy === 'disconnect'}
             />
           )}
           <ControlBtn
             icon={<RotateCw size={12} />}
-            label="Rotate"
+            label={t.rotate}
             onClick={() => action('rotate', () => RotateProxy(proxy.id))}
             busy={busy === 'rotate'}
             disabled={!isActive && !isConnecting}
           />
+
+          {isActive && (proxy.totalUptime > 0 || proxy.connectedAt) && (
+            <span className="ml-auto flex items-center gap-1 text-[10px] text-text-tertiary">
+              <Timer size={9} />
+              {formatUptime(proxy.totalUptime || 0, proxy.connectedAt)}
+            </span>
+          )}
         </div>
       </div>
 
@@ -155,6 +209,7 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center justify-center py-1.5 border-t border-border-subtle
                    text-text-tertiary/40 hover:text-text-tertiary hover:bg-surface-3/60 transition-all"
+        aria-label={expanded ? 'Collapse details' : 'Expand details'}
       >
         <ChevronDown size={10} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
@@ -165,19 +220,25 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
           animate={{ height: 'auto', opacity: 1 }}
           className="px-3 pb-3 space-y-1.5 text-[10px] text-text-tertiary border-t border-border-subtle"
         >
-          <DetailRow icon={<Server size={9} />} label="Host" value={`${proxy.host}:${proxy.port}`} />
-          <DetailRow icon={<Wifi size={9} />} label="Session" value={proxy.sessionId || '--'} />
+          <DetailRow icon={<Server size={9} />} label={t.host} value={`${proxy.host}:${proxy.port}`} />
+          <DetailRow icon={<Wifi size={9} />} label={t.session} value={proxy.sessionId || '--'} />
+          {proxy.connectedAt && (
+            <DetailRow icon={<Clock size={9} />} label={t.connectedAt} value={new Date(proxy.connectedAt).toLocaleTimeString()} />
+          )}
+          {(proxy.totalUptime > 0 || proxy.connectedAt) && (
+            <DetailRow icon={<Timer size={9} />} label={t.totalUptime} value={formatUptime(proxy.totalUptime || 0, proxy.connectedAt)} />
+          )}
           {proxy.location?.timezone && (
-            <DetailRow icon={<Clock size={9} />} label="Timezone" value={proxy.location.timezone} />
+            <DetailRow icon={<Clock size={9} />} label={t.timezone} value={proxy.location.timezone} />
           )}
           {proxy.location?.org && (
-            <DetailRow icon={<Building2 size={9} />} label="Org" value={proxy.location.org} />
+            <DetailRow icon={<Building2 size={9} />} label={t.org} value={proxy.location.org} />
           )}
           {proxy.location?.as && (
-            <DetailRow icon={<Activity size={9} />} label="AS" value={proxy.location.as} />
+            <DetailRow icon={<Activity size={9} />} label={t.asNumber} value={proxy.location.as} />
           )}
           {proxy.lastCheck && (
-            <DetailRow icon={<Clock size={9} />} label="Last check" value={new Date(proxy.lastCheck).toLocaleTimeString()} />
+            <DetailRow icon={<Clock size={9} />} label={t.lastCheck} value={new Date(proxy.lastCheck).toLocaleTimeString()} />
           )}
         </motion.div>
       )}
@@ -200,11 +261,12 @@ function ControlBtn({
       onClick={onClick}
       disabled={disabled || busy}
       title={label}
+      aria-label={label}
       className={`h-7 px-2.5 flex items-center gap-1.5 text-[10px] font-medium rounded
                   border transition-all
                   disabled:opacity-20 disabled:cursor-not-allowed
                   ${accent
-                    ? 'bg-text-primary border-transparent text-surface-0 hover:bg-[#d4d4d4] font-semibold'
+                    ? 'bg-btn-accent border-transparent text-btn-accent-text hover:bg-btn-accent-hover font-semibold'
                     : 'bg-transparent border-border-strong text-text-secondary hover:text-text-primary hover:bg-surface-2'
                   }`}
     >

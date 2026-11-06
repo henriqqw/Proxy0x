@@ -1,18 +1,31 @@
 import { useState, useEffect, useCallback } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { EventsOn } from 'wailsjs/runtime/runtime'
-import { GetProxies, GetMyIP } from 'wailsjs/go/main/App'
+import { GetProxies, GetMyIP, ReorderProxies } from 'wailsjs/go/main/App'
 import { main } from 'wailsjs/go/models'
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext, verticalListSortingStrategy, arrayMove,
+} from '@dnd-kit/sortable'
+import { LanguageProvider } from './i18n/LanguageContext'
 import TitleBar from './components/TitleBar'
 import ProxyForm from './components/ProxyForm'
 import ProxyCard from './components/ProxyCard'
 import EmptyState from './components/EmptyState'
 import MyIPBadge from './components/MyIPBadge'
+import ContextMenu from './components/ContextMenu'
 
-export default function App() {
+function AppContent() {
   const [proxies, setProxies] = useState<main.ProxyEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [myIP, setMyIP] = useState<string>('')
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  )
 
   const fetchProxies = useCallback(async () => {
     try {
@@ -54,11 +67,37 @@ export default function App() {
       fetchProxies()
     })
 
+    const offDropped = EventsOn('proxy-dropped', (data: { host: string }) => {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('Proxy0x', { body: `Proxy ${data.host} dropped`, icon: '/icon-64.png' })
+      } else if ('Notification' in window && Notification.permission !== 'denied') {
+        Notification.requestPermission().then(p => {
+          if (p === 'granted') {
+            new Notification('Proxy0x', { body: `Proxy ${data.host} dropped`, icon: '/icon-64.png' })
+          }
+        })
+      }
+    })
+
     return () => {
       offUpdated()
       offChanged()
+      offDropped()
     }
   }, [fetchProxies])
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+
+    setProxies(prev => {
+      const oldIndex = prev.findIndex(p => p.id === active.id)
+      const newIndex = prev.findIndex(p => p.id === over.id)
+      const reordered = arrayMove(prev, oldIndex, newIndex)
+      ReorderProxies(reordered.map(p => p.id))
+      return reordered
+    })
+  }
 
   return (
     <div className="h-full flex flex-col bg-surface-0">
@@ -66,23 +105,35 @@ export default function App() {
       <div className="flex-1 overflow-y-auto px-4 pt-3 pb-4 space-y-3">
         <MyIPBadge ip={myIP} onRefresh={fetchMyIP} />
         <ProxyForm onAdded={fetchProxies} />
-        <AnimatePresence mode="popLayout">
-          {loading ? (
-            <SkeletonList />
-          ) : proxies.length === 0 ? (
-            <EmptyState />
-          ) : (
-            proxies.map(proxy => (
-              <ProxyCard key={proxy.id} proxy={proxy} onRemoved={fetchProxies} />
-            ))
-          )}
-        </AnimatePresence>
-
+        {loading ? (
+          <SkeletonList />
+        ) : proxies.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={proxies.map(p => p.id)} strategy={verticalListSortingStrategy}>
+              <AnimatePresence mode="popLayout">
+                {proxies.map(proxy => (
+                  <ProxyCard key={proxy.id} proxy={proxy} onRemoved={fetchProxies} />
+                ))}
+              </AnimatePresence>
+            </SortableContext>
+          </DndContext>
+        )}
       </div>
       <div className="shrink-0 flex items-center justify-center py-3 border-t border-border-subtle">
-        <img src="/logo.png" alt="Proxy0x" className="h-7 opacity-[0.15]" draggable={false} />
+        <img src="/logo.png" alt="Proxy0x" className="h-7 opacity-[0.15] logo-footer" draggable={false} />
       </div>
+      <ContextMenu />
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <LanguageProvider>
+      <AppContent />
+    </LanguageProvider>
   )
 }
 

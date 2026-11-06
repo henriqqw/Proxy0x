@@ -26,12 +26,24 @@ export function DisconnectProxy(arg1) {
   return window['go']['main']['App']['DisconnectProxy'](arg1);
 }
 
+export function GetConnectionLog() {
+  return window['go']['main']['App']['GetConnectionLog']();
+}
+
+export function GetLanguage() {
+  return window['go']['main']['App']['GetLanguage']();
+}
+
 export function GetMyIP() {
   return window['go']['main']['App']['GetMyIP']();
 }
 
 export function GetProxies() {
   return window['go']['main']['App']['GetProxies']();
+}
+
+export function GetTheme() {
+  return window['go']['main']['App']['GetTheme']();
 }
 
 export function MinimizeWindow() {
@@ -46,12 +58,24 @@ export function RemoveProxy(arg1) {
   return window['go']['main']['App']['RemoveProxy'](arg1);
 }
 
+export function ReorderProxies(arg1) {
+  return window['go']['main']['App']['ReorderProxies'](arg1);
+}
+
 export function RestartProxy(arg1) {
   return window['go']['main']['App']['RestartProxy'](arg1);
 }
 
 export function RotateProxy(arg1) {
   return window['go']['main']['App']['RotateProxy'](arg1);
+}
+
+export function SetLanguage(arg1) {
+  return window['go']['main']['App']['SetLanguage'](arg1);
+}
+
+export function SetTheme(arg1) {
+  return window['go']['main']['App']['SetTheme'](arg1);
 }
 
 export function ShowWindow() {

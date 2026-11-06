@@ -5,29 +5,34 @@ export default {
     extend: {
       colors: {
         surface: {
-          0: '#191919',
-          1: '#202020',
-          2: '#252525',
-          3: '#2f2f2f',
-          4: '#373737',
-          5: '#434343',
-          6: '#505050',
+          0: 'var(--surface-0)',
+          1: 'var(--surface-1)',
+          2: 'var(--surface-2)',
+          3: 'var(--surface-3)',
+          4: 'var(--surface-4)',
+          5: 'var(--surface-5)',
+          6: 'var(--surface-6)',
         },
         border: {
-          subtle: 'rgba(255,255,255,0.06)',
-          default: 'rgba(255,255,255,0.09)',
-          strong: 'rgba(255,255,255,0.14)',
+          subtle: 'var(--border-subtle)',
+          default: 'var(--border-default)',
+          strong: 'var(--border-strong)',
         },
         text: {
-          primary: '#ebebeb',
-          secondary: '#999999',
-          tertiary: '#6b6b6b',
+          primary: 'var(--text-primary)',
+          secondary: 'var(--text-secondary)',
+          tertiary: 'var(--text-tertiary)',
         },
         accent: {
           DEFAULT: '#68E045',
           dark: '#43B52F',
           muted: '#68E04540',
           subtle: '#68E04520',
+        },
+        btn: {
+          accent: 'var(--btn-accent-bg)',
+          'accent-text': 'var(--btn-accent-text)',
+          'accent-hover': 'var(--btn-accent-hover)',
         },
         status: {
           online: '#68E045',

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -42,33 +43,77 @@ type GeoInfo struct {
 }
 
 type ProxyEntry struct {
-	ID        string      `json:"id"`
-	Raw       string      `json:"raw"`
-	Host      string      `json:"host"`
-	Port      string      `json:"port"`
-	Username  string      `json:"username"`
-	Password  string      `json:"password"`
-	Status    ProxyStatus `json:"status"`
-	CurrentIP string      `json:"currentIp"`
-	Location  *GeoInfo    `json:"location"`
-	Latency   int64       `json:"latency"`
-	LastCheck string      `json:"lastCheck"`
-	Active    bool        `json:"active"`
-	SessionID string      `json:"sessionId"`
+	ID          string      `json:"id"`
+	Raw         string      `json:"raw"`
+	Host        string      `json:"host"`
+	Port        string      `json:"port"`
+	Username    string      `json:"username"`
+	Password    string      `json:"password"`
+	Status      ProxyStatus `json:"status"`
+	CurrentIP   string      `json:"currentIp"`
+	Location    *GeoInfo    `json:"location"`
+	Latency     int64       `json:"latency"`
+	LastCheck   string      `json:"lastCheck"`
+	Active      bool        `json:"active"`
+	SessionID   string      `json:"sessionId"`
+	Order       int         `json:"order"`
+	ConnectedAt string      `json:"connectedAt"`
+	TotalUptime int64       `json:"totalUptime"`
+}
+
+type LogEntry struct {
+	Time    string `json:"time"`
+	Action  string `json:"action"`
+	ProxyID string `json:"proxyId"`
+	Host    string `json:"host"`
+	Detail  string `json:"detail"`
 }
 
 type App struct {
 	ctx     context.Context
 	proxies map[string]*ProxyEntry
+	clients map[string]*http.Client
 	mu      sync.RWMutex
 	stopCh  chan struct{}
+	logs    []LogEntry
+	logMu   sync.RWMutex
 }
 
 func NewApp() *App {
 	return &App{
 		proxies: make(map[string]*ProxyEntry),
+		clients: make(map[string]*http.Client),
 		stopCh:  make(chan struct{}),
+		logs:    make([]LogEntry, 0, 200),
 	}
+}
+
+func (a *App) addLog(action, proxyID, host, detail string) {
+	entry := LogEntry{
+		Time:    time.Now().Format(time.RFC3339),
+		Action:  action,
+		ProxyID: proxyID,
+		Host:    host,
+		Detail:  detail,
+	}
+	a.logMu.Lock()
+	a.logs = append(a.logs, entry)
+	if len(a.logs) > 200 {
+		a.logs = a.logs[len(a.logs)-200:]
+	}
+	a.logMu.Unlock()
+	runtime.EventsEmit(a.ctx, "log-entry", entry)
+}
+
+func (a *App) GetConnectionLog() []LogEntry {
+	a.logMu.RLock()
+	defer a.logMu.RUnlock()
+	result := make([]LogEntry, len(a.logs))
+	copy(result, a.logs)
+	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
+		result[i], result[j] = result[j], result[i]
+	}
+	return result
 }
 
 func (a *App) dataDir() string {
@@ -78,6 +123,61 @@ func (a *App) dataDir() string {
 
 func (a *App) dataFile() string {
 	return filepath.Join(a.dataDir(), "proxies.json")
+}
+
+func (a *App) configFile() string {
+	return filepath.Join(a.dataDir(), "config.json")
+}
+
+type AppConfig struct {
+	Language string `json:"language"`
+	Theme    string `json:"theme"`
+}
+
+func (a *App) loadConfig() AppConfig {
+	data, err := os.ReadFile(a.configFile())
+	if err != nil {
+		return AppConfig{Language: "en", Theme: "dark"}
+	}
+	var cfg AppConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return AppConfig{Language: "en", Theme: "dark"}
+	}
+	if cfg.Language == "" {
+		cfg.Language = "en"
+	}
+	if cfg.Theme == "" {
+		cfg.Theme = "dark"
+	}
+	return cfg
+}
+
+func (a *App) saveConfig(cfg AppConfig) {
+	os.MkdirAll(a.dataDir(), 0o700)
+	data, _ := json.MarshalIndent(cfg, "", "  ")
+	os.WriteFile(a.configFile(), data, 0o600)
+}
+
+func (a *App) GetLanguage() string {
+	return a.loadConfig().Language
+}
+
+func (a *App) SetLanguage(lang string) {
+	cfg := a.loadConfig()
+	cfg.Language = lang
+	a.saveConfig(cfg)
+	runtime.EventsEmit(a.ctx, "language-changed", lang)
+}
+
+func (a *App) GetTheme() string {
+	return a.loadConfig().Theme
+}
+
+func (a *App) SetTheme(theme string) {
+	cfg := a.loadConfig()
+	cfg.Theme = theme
+	a.saveConfig(cfg)
+	runtime.EventsEmit(a.ctx, "theme-changed", theme)
 }
 
 func (a *App) loadProxies() {
@@ -91,6 +191,12 @@ func (a *App) loadProxies() {
 	}
 	a.mu.Lock()
 	for _, p := range entries {
+		if dec, err := a.decrypt(p.Username); err == nil {
+			p.Username = dec
+		}
+		if dec, err := a.decrypt(p.Password); err == nil {
+			p.Password = dec
+		}
 		p.Status = StatusOffline
 		p.Active = false
 		p.CurrentIP = ""
@@ -104,13 +210,24 @@ func (a *App) saveProxies() {
 	a.mu.RLock()
 	entries := make([]*ProxyEntry, 0, len(a.proxies))
 	for _, p := range a.proxies {
-		entries = append(entries, p)
+		clone := *p
+		if enc, err := a.encrypt(clone.Username); err == nil {
+			clone.Username = enc
+		}
+		if enc, err := a.encrypt(clone.Password); err == nil {
+			clone.Password = enc
+		}
+		clone.Status = StatusOffline
+		clone.Active = false
+		clone.CurrentIP = ""
+		clone.Latency = 0
+		entries = append(entries, &clone)
 	}
 	a.mu.RUnlock()
 
-	os.MkdirAll(a.dataDir(), 0o755)
+	os.MkdirAll(a.dataDir(), 0o700)
 	data, _ := json.MarshalIndent(entries, "", "  ")
-	os.WriteFile(a.dataFile(), data, 0o644)
+	os.WriteFile(a.dataFile(), data, 0o600)
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -143,7 +260,6 @@ func (a *App) ShowWindow() {
 func (a *App) ToggleMaximize() {
 	runtime.WindowToggleMaximise(a.ctx)
 }
-
 
 func generateID() string {
 	b := make([]byte, 8)
@@ -200,6 +316,7 @@ func (a *App) AddProxy(raw string) (*ProxyEntry, error) {
 	a.proxies[proxy.ID] = proxy
 	a.mu.Unlock()
 
+	a.addLog("added", proxy.ID, proxy.Host+":"+proxy.Port, "")
 	a.saveProxies()
 	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
 	return proxy, nil
@@ -224,6 +341,7 @@ func (a *App) AddProxiesBatch(raw string) ([]*ProxyEntry, error) {
 		added = append(added, proxy)
 	}
 
+	a.addLog("batch-added", "", "", fmt.Sprintf("%d proxies", len(added)))
 	a.saveProxies()
 	runtime.EventsEmit(a.ctx, "proxies-changed")
 	return added, nil
@@ -231,8 +349,15 @@ func (a *App) AddProxiesBatch(raw string) ([]*ProxyEntry, error) {
 
 func (a *App) RemoveProxy(id string) {
 	a.mu.Lock()
+	p := a.proxies[id]
+	host := ""
+	if p != nil {
+		host = p.Host + ":" + p.Port
+	}
 	delete(a.proxies, id)
+	delete(a.clients, id)
 	a.mu.Unlock()
+	a.addLog("removed", id, host, "")
 	a.saveProxies()
 	runtime.EventsEmit(a.ctx, "proxies-changed")
 }
@@ -245,7 +370,21 @@ func (a *App) GetProxies() []*ProxyEntry {
 	for _, p := range a.proxies {
 		result = append(result, p)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Order < result[j].Order
+	})
 	return result
+}
+
+func (a *App) ReorderProxies(ids []string) {
+	a.mu.Lock()
+	for i, id := range ids {
+		if p, ok := a.proxies[id]; ok {
+			p.Order = i
+		}
+	}
+	a.mu.Unlock()
+	a.saveProxies()
 }
 
 func (a *App) buildProxyURL(proxy *ProxyEntry) string {
@@ -262,9 +401,13 @@ func (a *App) buildProxyURL(proxy *ProxyEntry) string {
 	return fmt.Sprintf("http://%s:%s", proxy.Host, proxy.Port)
 }
 
-func (a *App) getHTTPClient(proxy *ProxyEntry) *http.Client {
+func (a *App) getOrCreateClient(proxy *ProxyEntry) *http.Client {
+	clientKey := proxy.ID + ":" + proxy.SessionID
+	if client, ok := a.clients[clientKey]; ok {
+		return client
+	}
 	proxyURL, _ := url.Parse(a.buildProxyURL(proxy))
-	return &http.Client{
+	client := &http.Client{
 		Transport: &http.Transport{
 			Proxy: http.ProxyURL(proxyURL),
 			DialContext: (&net.Dialer{
@@ -272,9 +415,13 @@ func (a *App) getHTTPClient(proxy *ProxyEntry) *http.Client {
 				KeepAlive: 30 * time.Second,
 			}).DialContext,
 			TLSHandshakeTimeout: 10 * time.Second,
+			MaxIdleConns:        2,
+			IdleConnTimeout:     90 * time.Second,
 		},
 		Timeout: 20 * time.Second,
 	}
+	a.clients[clientKey] = client
+	return client
 }
 
 func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
@@ -285,11 +432,10 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 		return nil, fmt.Errorf("proxy not found")
 	}
 	proxy.Status = StatusConnecting
+	client := a.getOrCreateClient(proxy)
 	a.mu.Unlock()
 
 	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
-
-	client := a.getHTTPClient(proxy)
 
 	start := time.Now()
 	resp, err := client.Get("https://api.ipify.org?format=json")
@@ -301,6 +447,7 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 		proxy.Latency = 0
 		proxy.LastCheck = time.Now().Format(time.RFC3339)
 		a.mu.Unlock()
+		a.addLog("connect-failed", id, proxy.Host+":"+proxy.Port, err.Error())
 		runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
 		return proxy, fmt.Errorf("connection failed: %v", err)
 	}
@@ -321,8 +468,10 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 	proxy.Location = geo
 	proxy.Active = true
 	proxy.LastCheck = time.Now().Format(time.RFC3339)
+	proxy.ConnectedAt = time.Now().Format(time.RFC3339)
 	a.mu.Unlock()
 
+	a.addLog("connected", id, proxy.Host+":"+proxy.Port, fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
 	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
 	return proxy, nil
 }
@@ -334,12 +483,20 @@ func (a *App) DisconnectProxy(id string) (*ProxyEntry, error) {
 		a.mu.Unlock()
 		return nil, fmt.Errorf("proxy not found")
 	}
+	if proxy.ConnectedAt != "" {
+		if t, err := time.Parse(time.RFC3339, proxy.ConnectedAt); err == nil {
+			proxy.TotalUptime += int64(time.Since(t).Seconds())
+		}
+	}
 	proxy.Status = StatusOffline
 	proxy.Active = false
 	proxy.CurrentIP = ""
 	proxy.Latency = 0
+	proxy.ConnectedAt = ""
+	delete(a.clients, id+":"+proxy.SessionID)
 	a.mu.Unlock()
 
+	a.addLog("disconnected", id, proxy.Host+":"+proxy.Port, "")
 	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
 	return proxy, nil
 }
@@ -351,13 +508,14 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 		a.mu.Unlock()
 		return nil, fmt.Errorf("proxy not found")
 	}
+	oldSession := proxy.SessionID
+	delete(a.clients, id+":"+oldSession)
 	proxy.SessionID = generateSessionID()
 	proxy.Status = StatusConnecting
+	client := a.getOrCreateClient(proxy)
 	a.mu.Unlock()
 
 	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
-
-	client := a.getHTTPClient(proxy)
 
 	start := time.Now()
 	resp, err := client.Get("https://api.ipify.org?format=json")
@@ -367,6 +525,7 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 		a.mu.Lock()
 		proxy.Status = StatusError
 		a.mu.Unlock()
+		a.addLog("rotate-failed", id, proxy.Host+":"+proxy.Port, err.Error())
 		runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
 		return proxy, fmt.Errorf("rotation failed: %v", err)
 	}
@@ -389,6 +548,7 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 	proxy.LastCheck = time.Now().Format(time.RFC3339)
 	a.mu.Unlock()
 
+	a.addLog("rotated", id, proxy.Host+":"+proxy.Port, fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
 	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
 	return proxy, nil
 }
@@ -402,13 +562,13 @@ func (a *App) RestartProxy(id string) (*ProxyEntry, error) {
 func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
 	a.mu.RLock()
 	proxy, ok := a.proxies[id]
-	if !ok {
+	if !ok || !proxy.Active {
 		a.mu.RUnlock()
-		return nil, fmt.Errorf("proxy not found")
+		return nil, fmt.Errorf("proxy not found or inactive")
 	}
+	client := a.getOrCreateClient(proxy)
+	prevStatus := proxy.Status
 	a.mu.RUnlock()
-
-	client := a.getHTTPClient(proxy)
 
 	start := time.Now()
 	resp, err := client.Get("https://api.ipify.org?format=json")
@@ -419,6 +579,13 @@ func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
 		proxy.Status = StatusError
 		proxy.LastCheck = time.Now().Format(time.RFC3339)
 		a.mu.Unlock()
+		if prevStatus == StatusConnected {
+			a.addLog("dropped", id, proxy.Host+":"+proxy.Port, err.Error())
+			runtime.EventsEmit(a.ctx, "proxy-dropped", map[string]string{
+				"id":   id,
+				"host": proxy.Host + ":" + proxy.Port,
+			})
+		}
 		runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
 		return proxy, nil
 	}
@@ -460,7 +627,7 @@ func (a *App) fetchGeoInfo(client *http.Client, ip string) *GeoInfo {
 }
 
 func (a *App) healthCheckLoop() {
-	ticker := time.NewTicker(60 * time.Second)
+	ticker := time.NewTicker(90 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -477,8 +644,16 @@ func (a *App) healthCheckLoop() {
 			}
 			a.mu.RUnlock()
 
-			for _, id := range activeIDs {
+			for i, id := range activeIDs {
+				select {
+				case <-a.stopCh:
+					return
+				default:
+				}
 				a.CheckHealth(id)
+				if i < len(activeIDs)-1 {
+					time.Sleep(1500 * time.Millisecond)
+				}
 			}
 		}
 	}

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Globe, RefreshCw, Eye, EyeOff } from 'lucide-react'
+import { useTranslation } from '../i18n/LanguageContext'
 
 interface Props {
   ip: string
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export default function MyIPBadge({ ip, onRefresh }: Props) {
+  const { t } = useTranslation()
   const [spinning, setSpinning] = useState(false)
   const [visible, setVisible] = useState(false)
 
@@ -27,7 +29,7 @@ export default function MyIPBadge({ ip, onRefresh }: Props) {
     >
       <div className="flex items-center gap-2">
         <Globe size={12} className="text-accent/50" />
-        <span className="text-[10px] text-text-tertiary uppercase tracking-wider">Your IP</span>
+        <span className="text-[10px] text-text-tertiary uppercase tracking-wider">{t.yourIp}</span>
       </div>
       <div className="flex items-center gap-1.5">
         <span className="text-xs font-mono text-text-secondary select-none">
@@ -36,7 +38,8 @@ export default function MyIPBadge({ ip, onRefresh }: Props) {
         <button
           onClick={() => setVisible(!visible)}
           className="p-1 rounded hover:bg-surface-4 transition-colors text-text-tertiary hover:text-text-secondary"
-          title={visible ? 'Ocultar IP' : 'Mostrar IP'}
+          title={visible ? t.hideIp : t.showIp}
+          aria-label={visible ? t.hideIp : t.showIp}
         >
           <motion.div
             key={visible ? 'eye' : 'eyeoff'}
@@ -50,6 +53,7 @@ export default function MyIPBadge({ ip, onRefresh }: Props) {
         <button
           onClick={handleRefresh}
           className="p-1 rounded hover:bg-surface-4 transition-colors text-text-tertiary hover:text-text-secondary"
+          aria-label="Refresh IP"
         >
           <RefreshCw size={10} className={spinning ? 'animate-spin' : ''} />
         </button>
