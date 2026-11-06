@@ -121,7 +121,7 @@ func NewApp() *App {
 		crypt:          crypto.NewStore(config.DataDir()),
 		dataFile:       config.DataFile(),
 		emit:           runtime.EventsEmit,
-		sysproxy:       proxy.NewSystemProxy(),
+		sysproxy:       proxy.NewSystemProxy(config.SysProxyBackupFile()),
 		newLocalServer: proxy.NewLocalServer,
 	}
 }

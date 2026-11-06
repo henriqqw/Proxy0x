@@ -1,10 +1,15 @@
 package proxy
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"syscall"
 	"unsafe"
+
+	"proxy_ui/internal/fsutil"
 
 	"golang.org/x/sys/windows/registry"
 )
@@ -32,24 +37,89 @@ type Registry interface {
 
 // SystemProxy points the Windows proxy at the local server.
 type SystemProxy struct {
-	reg     Registry
-	refresh func()
+	reg        Registry
+	refresh    func()
+	backupPath string
 }
 
-func NewSystemProxy() *SystemProxy {
-	return &SystemProxy{reg: winRegistry{}, refresh: refreshProxy}
+// backup is what the user had before Proxy0x changed the system proxy,
+// plus the address Proxy0x set (to recognize our own leftover after a crash).
+type backup struct {
+	Previous Settings `json:"previous"`
+	Ours     string   `json:"ours"`
+}
+
+func NewSystemProxy(backupPath string) *SystemProxy {
+	return &SystemProxy{reg: winRegistry{}, refresh: refreshProxy, backupPath: backupPath}
 }
 
 func (s *SystemProxy) Set(port int) error {
-	err := s.reg.Set(Settings{Enable: true, Server: fmt.Sprintf("127.0.0.1:%d", port), Override: bypassList})
+	ours := fmt.Sprintf("127.0.0.1:%d", port)
+	b, hasBackup, err := s.readBackup()
+	if err != nil {
+		return err
+	}
+	if !hasBackup {
+		cur, err := s.reg.Get()
+		if err != nil {
+			return err
+		}
+		b.Previous = cur
+	}
+	b.Ours = ours
+	if err := s.writeBackup(b); err != nil {
+		return fmt.Errorf("save system proxy backup: %w", err)
+	}
+	err = s.reg.Set(Settings{Enable: true, Server: ours, Override: bypassList})
 	s.refresh()
 	return err
 }
 
+// Clear restores the user's previous settings.
 func (s *SystemProxy) Clear() error {
+	b, hasBackup, err := s.readBackup()
+	if err != nil {
+		return err
+	}
+	if !hasBackup {
+		return s.disableIfLegacyLeftover()
+	}
+	if err := s.reg.Set(b.Previous); err != nil {
+		return err
+	}
+	s.refresh()
+	return os.Remove(s.backupPath)
+}
+
+// Recover runs at startup: it undoes only a proxy that Proxy0x itself left
+// behind. Settings the user changed since then are never touched.
+func (s *SystemProxy) Recover() error {
+	b, hasBackup, err := s.readBackup()
+	if err != nil {
+		return err
+	}
+	if !hasBackup {
+		return s.disableIfLegacyLeftover()
+	}
 	cur, err := s.reg.Get()
 	if err != nil {
 		return err
+	}
+	if cur.Enable && cur.Server == b.Ours {
+		return s.Clear()
+	}
+	return os.Remove(s.backupPath)
+}
+
+// disableIfLegacyLeftover handles proxies left by versions without a backup
+// file: 127.0.0.1 with Proxy0x's exact bypass list.
+func (s *SystemProxy) disableIfLegacyLeftover() error {
+	cur, err := s.reg.Get()
+	if err != nil {
+		return err
+	}
+	if !cur.Enable || !strings.HasPrefix(cur.Server, "127.0.0.1:") || cur.Override != bypassList {
+		return nil
 	}
 	cur.Enable = false
 	err = s.reg.Set(cur)
@@ -57,9 +127,27 @@ func (s *SystemProxy) Clear() error {
 	return err
 }
 
-// Recover runs at startup to undo a proxy left behind by a crash.
-func (s *SystemProxy) Recover() error {
-	return s.Clear()
+func (s *SystemProxy) readBackup() (backup, bool, error) {
+	data, err := os.ReadFile(s.backupPath)
+	if os.IsNotExist(err) {
+		return backup{}, false, nil
+	}
+	if err != nil {
+		return backup{}, false, err
+	}
+	var b backup
+	if err := json.Unmarshal(data, &b); err != nil {
+		return backup{}, false, fmt.Errorf("parse %s: %w", s.backupPath, err)
+	}
+	return b, true, nil
+}
+
+func (s *SystemProxy) writeBackup(b backup) error {
+	data, err := json.Marshal(b)
+	if err != nil {
+		return err
+	}
+	return fsutil.WriteFileAtomic(s.backupPath, data, 0o600)
 }
 
 type winRegistry struct{}

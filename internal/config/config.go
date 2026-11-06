@@ -24,6 +24,10 @@ func DataFile() string {
 	return filepath.Join(DataDir(), "proxies.json")
 }
 
+func SysProxyBackupFile() string {
+	return filepath.Join(DataDir(), "sysproxy-backup.json")
+}
+
 func FilePath() string {
 	return filepath.Join(DataDir(), "config.json")
 }
