@@ -11,10 +11,11 @@
 </p>
 <p align="center">
   <a href="https://github.com/henriqqw/Proxy0x/releases/latest">Download</a>
+  · <a href="#mcp-integration">MCP Integration</a>
   · <a href="https://github.com/henriqqw/Proxy0x/issues">Report issue</a>
 </p>
 
-Windows desktop proxy manager. Route all browser traffic through HTTP or SOCKS5 proxies via a local proxy server, rotate IPs by session, run speed tests, organize proxies by group, and monitor latency and geolocation in real time. 16 languages, frameless dark UI with system tray. Built with **Go**, **Wails** and **React**.
+Windows desktop proxy manager. Route all browser traffic through HTTP or SOCKS5 proxies via a local proxy server, rotate IPs by session, run speed tests, organize proxies by group, and monitor latency and geolocation in real time. Includes an **MCP server** for AI agent integration with Claude Desktop. 16 languages, frameless dark UI with system tray. Built with **Go**, **Wails** and **React**.
 
 ## Screenshots
 
@@ -58,6 +59,7 @@ Download from the [latest release](https://github.com/henriqqw/Proxy0x/releases/
 | Connection stats | Connected-at time, total uptime per proxy (persisted across sessions) |
 | Encryption | AES-GCM credential encryption with per-machine key |
 | Persistence | Proxies saved to `%APPDATA%/Proxy0x/proxies.json`, auto-restored on startup |
+| MCP server | AI agent integration — 9 tools, 3 resources, 2 prompts, SSRF protection |
 | i18n | 16 languages — EN, PT-BR, PT-PT, ES, FR, DE, IT, RU, JA, KO, ZH-CN, AR, HI, TR, TH, PL |
 | System tray | Minimize to tray, language submenu, connect/disconnect/rotate all, quit |
 | Interface | Frameless window, drag-to-reorder, loading skeletons, mouse back/forward navigation |
@@ -81,6 +83,51 @@ Residential proxies with geographic targeting (DataImpulse, etc.) are supported.
 7. Change language via the globe button in the title bar.
 8. Close the window — the app minimizes to system tray. Click the tray icon to restore; use **Quit** to exit.
 
+## MCP Integration
+
+Proxy0x includes an MCP (Model Context Protocol) server that lets AI agents like Claude use your proxy pool. The MCP server runs as a separate binary (`proxy0x-mcp.exe`) communicating via stdio.
+
+### One-click setup
+
+Open **Settings** in the app and toggle **Claude MCP** — this writes the config to Claude Desktop automatically and runs a health check to verify it works. Restart Claude Desktop after connecting.
+
+### Manual setup
+
+1. Build the MCP server:
+   ```bash
+   go build -o proxy0x-mcp.exe ./cmd/proxy0x-mcp/
+   ```
+
+2. Add to `%APPDATA%/Claude/claude_desktop_config.json`:
+   ```json
+   {
+     "mcpServers": {
+       "proxy0x": {
+         "command": "C:\\path\\to\\proxy0x-mcp.exe",
+         "args": []
+       }
+     }
+   }
+   ```
+
+3. Restart Claude Desktop.
+
+### Available tools
+
+| Tool | Description |
+|------|-------------|
+| `proxy_fetch` | Fetch a URL through the best proxy (SSRF-protected) |
+| `proxy_list` | List all proxies (credentials stripped) |
+| `proxy_status` | Pool stats overview |
+| `proxy_connect` | Connect a proxy by ID |
+| `proxy_disconnect` | Disconnect a proxy |
+| `proxy_rotate` | Rotate session for a new IP |
+| `proxy_add` | Add a proxy (`host:port[:user:pass]`) |
+| `proxy_remove` | Remove a proxy by ID |
+| `proxy_health` | Health check all active proxies |
+
+See [docs/mcp.md](docs/mcp.md) for full MCP documentation.
+
 ## How it works
 
 Proxy0x runs a local HTTP/SOCKS5 proxy server on `127.0.0.1`. When you connect a proxy, the app:
@@ -103,30 +150,41 @@ Browser ──► Local Proxy (127.0.0.1) ──► Upstream Proxy ──► Int
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────┐
-│              Wails WebView2                  │
-│  ┌────────────────────────────────────────┐  │
-│  │    React + TypeScript + Tailwind       │  │
-│  │    Lucide · @dnd-kit · i18n (16 lang)  │  │
-│  └─────────────────┬──────────────────────┘  │
-│                    │ bindings                 │
-│  ┌─────────────────▼──────────────────────┐  │
-│  │           Go Backend                   │  │
-│  │  Proxy Manager · Local Proxy Server    │  │
-│  │  HTTP & SOCKS5 · Health Checker        │  │
-│  │  Speed Test · Auto Rotation            │  │
-│  │  AES-GCM Crypto · Config Store         │  │
-│  └─────────────────┬──────────────────────┘  │
-│                    │                         │
-│  ┌─────────────────▼──────────────────────┐  │
-│  │          System Tray                   │  │
-│  │    energye/systray · Language menu     │  │
-│  └────────────────────────────────────────┘  │
-└──────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│              Wails WebView2                      │
+│  ┌────────────────────────────────────────────┐  │
+│  │    React + TypeScript + Tailwind           │  │
+│  │    Lucide · @dnd-kit · i18n (16 lang)      │  │
+│  └──────────────────┬─────────────────────────┘  │
+│                     │ bindings                    │
+│  ┌──────────────────▼─────────────────────────┐  │
+│  │           Go Backend                       │  │
+│  │  Proxy Manager · Local Proxy Server        │  │
+│  │  HTTP & SOCKS5 · Health Checker            │  │
+│  │  Speed Test · Auto Rotation                │  │
+│  │  AES-GCM Crypto · Config Store             │  │
+│  └──────────────────┬─────────────────────────┘  │
+│                     │                             │
+│  ┌──────────────────▼─────────────────────────┐  │
+│  │          System Tray                       │  │
+│  │    energye/systray · Language menu         │  │
+│  └────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────┘
          │              │              │
          ▼              ▼              ▼
    api.ipify.org   ip-api.com    Windows System
    (IP lookup)    (geolocation)  Proxy Settings
+
+┌──────────────────────────────────────────────────┐
+│            MCP Server (stdio)                    │
+│  proxy0x-mcp.exe — separate binary               │
+│  9 tools · 3 resources · 2 prompts              │
+│  SSRF protection · Score-based rotation          │
+│  Shares encrypted proxy store with the app       │
+└──────────────────────────────────────────────────┘
+         │
+         ▼
+   Claude Desktop / AI agents
 ```
 
 ## Stack
@@ -141,6 +199,7 @@ Browser ──► Local Proxy (127.0.0.1) ──► Upstream Proxy ──► Int
 | Tray | energye/systray | System tray icon with language and control submenus |
 | Crypto | AES-GCM (stdlib) | Credential encryption at rest |
 | Network | net/http, net (stdlib) | HTTP & SOCKS5 proxy, connection pooling, health check |
+| MCP | mcp-go (mark3labs) | Model Context Protocol server for AI agent integration |
 | Installer | Inno Setup 6 | Windows installer with i18n and startup option |
 
 ## Development
@@ -168,6 +227,18 @@ wails build -ldflags "-s -w"
 
 Binary output: `build/bin/Proxy0x.exe`
 
+### MCP server build
+
+```bash
+go build -o proxy0x-mcp.exe ./cmd/proxy0x-mcp/
+```
+
+### Tests
+
+```bash
+go test ./pkg/proxycore/... ./internal/mcpserver/...
+```
+
 ### Installer build
 
 Requires [Inno Setup 6](https://jrsoftware.org/isinfo.php).
@@ -185,43 +256,76 @@ Proxy0x/
 ├── main.go                      # Entry point, Wails config
 ├── app.go                       # App struct, Wails-bound methods, types
 ├── tray.go                      # System tray with language submenu
+├── mcp_integration.go           # MCP config install/uninstall, health check
 ├── internal/
 │   ├── proxy/
-│   │   ├── server.go            # Local HTTP/SOCKS5 proxy server, connection tracking
-│   │   └── system.go            # Windows system proxy settings (registry)
+│   │   ├── server.go            # Local HTTP/SOCKS5 proxy server
+│   │   └── system.go            # Windows system proxy (registry)
 │   ├── crypto/
 │   │   └── crypto.go            # AES-GCM credential encryption
-│   └── config/
-│       └── config.go            # App configuration (load, save, defaults)
+│   ├── config/
+│   │   └── config.go            # App configuration persistence
+│   └── mcpserver/
+│       ├── server.go            # MCP server factory
+│       ├── tools.go             # 9 MCP tools
+│       ├── resources.go         # 3 MCP resources
+│       └── prompts.go           # 2 MCP prompts
+├── pkg/proxycore/
+│   ├── types.go                 # Shared proxy types
+│   ├── pool.go                  # Thread-safe proxy pool
+│   ├── client.go                # HTTP/SOCKS5 client builder
+│   ├── store.go                 # Encrypted JSON persistence
+│   ├── ssrf.go                  # SSRF URL validation
+│   └── fetcher.go               # Proxy fetch with SSRF protection
+├── cmd/proxy0x-mcp/
+│   └── main.go                  # MCP server entry point (stdio)
+├── docs/                        # Project documentation
 ├── installer.iss                # Inno Setup installer script
 ├── wails.json                   # Wails project config
 ├── build/
 │   ├── bin/                     # Production binary
 │   ├── installer/               # Installer output
-│   └── windows/                 # Icons (icon.ico, tray.ico), manifest
+│   └── windows/                 # Icons, manifest
 ├── assets/
 │   ├── banner.png               # README banner
-│   ├── icon.png                 # App icon (transparent)
+│   ├── icon.png                 # App icon
 │   └── screenshots/             # README screenshots
 └── frontend/
     ├── src/
-    │   ├── App.tsx              # Root component with DndContext, mouse navigation
+    │   ├── App.tsx              # Root component
     │   ├── i18n/
-    │   │   ├── translations.ts  # 16 language translation sets
+    │   │   ├── translations.ts  # 16 language sets
     │   │   └── LanguageContext.tsx
     │   └── components/
-    │       ├── TitleBar.tsx      # Window controls, theme toggle, language selector
-    │       ├── ProxyCard.tsx     # Sortable proxy card with stats, speed test, groups
+    │       ├── TitleBar.tsx      # Window controls, theme, language
+    │       ├── ProxyCard.tsx     # Sortable proxy card
     │       ├── ProxyForm.tsx     # Input and batch import
-    │       ├── SettingsPage.tsx  # Auto rotation, import/export, language, about
+    │       ├── SettingsPage.tsx  # Settings + MCP integration toggle
     │       ├── ContextMenu.tsx   # Right-click language selector
-    │       ├── StatusBadge.tsx   # Animated status indicator
-    │       ├── MyIPBadge.tsx     # User's real IP display
-    │       ├── FlagIcon.tsx      # Country flag from flagcdn
-    │       └── EmptyState.tsx    # Empty state illustration
-    ├── wailsjs/                  # Auto-generated Go <> TypeScript bindings
-    └── tailwind.config.js        # Theme tokens (CSS variables)
+    │       ├── StatusBadge.tsx   # Status indicator
+    │       ├── MyIPBadge.tsx     # Real IP display
+    │       ├── FlagIcon.tsx      # Country flag
+    │       └── EmptyState.tsx    # Empty state
+    ├── wailsjs/                  # Auto-generated bindings
+    └── tailwind.config.js        # Theme tokens
 ```
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/architecture.md) | System architecture, data flow, module layout |
+| [Backend](docs/backend.md) | Go backend: proxy manager, local server, health checks |
+| [Frontend](docs/frontend.md) | React components, i18n, Tailwind theme |
+| [API Reference](docs/api.md) | All Wails-exposed Go methods |
+| [MCP Server](docs/mcp.md) | MCP tools, resources, prompts, SSRF protection |
+| [Business Rules](docs/business-rules.md) | Scoring, rotation, health check, session logic |
+| [Data Models](docs/data.md) | Types, persistence, file formats |
+| [Security](docs/security.md) | Encryption, SSRF, credential handling |
+| [Design System](docs/design-system.md) | Color tokens, typography, component patterns |
+| [Market Research](docs/market-research.md) | Proxy market analysis and competitor research |
+| [AGENTS.md](docs/AGENTS.md) | Instructions for AI agents working with this codebase |
+| [CLAUDE.md](docs/CLAUDE.md) | Claude Code project configuration |
 
 ## External services
 
@@ -229,6 +333,7 @@ Proxy0x/
 |---------|-------|-------|
 | [api.ipify.org](https://www.ipify.org/) | Discover current IP through proxy | No documented limit |
 | [ip-api.com](http://ip-api.com/) | IP geolocation (country, city, ISP, AS) | 45 req/min (free tier) |
+| [ipwho.is](https://ipwho.is/) | Geolocation for MCP server | No documented limit |
 | [flagcdn.com](https://flagcdn.com/) | Country flag images | CDN, no limit |
 
 ## Requirements
