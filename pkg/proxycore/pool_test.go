@@ -1,6 +1,8 @@
 package proxycore
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
@@ -169,13 +171,27 @@ func TestPoolLogs(t *testing.T) {
 	}
 }
 
-func TestPoolPersistence(t *testing.T) {
+func TestPoolNeverWritesStore(t *testing.T) {
+	dir := t.TempDir()
+	pool := NewPool(NewStore(dir))
+
+	entry, _ := pool.Add("1.2.3.4:8080")
+	pool.Remove(entry.ID)
+	pool.Add("5.6.7.8:3128")
+
+	if _, err := os.Stat(filepath.Join(dir, "proxies.json")); !os.IsNotExist(err) {
+		t.Fatal("the MCP pool must never write proxies.json; the desktop app owns it")
+	}
+}
+
+func TestPoolLoadsStore(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)
-
-	p1 := NewPool(store)
-	p1.Add("1.2.3.4:8080:user:pass")
-	p1.Add("5.6.7.8:3128")
+	seed, _ := ParseProxy("1.2.3.4:8080:user:pass")
+	seed2, _ := ParseProxy("5.6.7.8:3128")
+	if err := store.Save([]*ProxyEntry{seed, seed2}); err != nil {
+		t.Fatal(err)
+	}
 
 	p2 := NewPool(store)
 	if err := p2.LoadFromStore(); err != nil {

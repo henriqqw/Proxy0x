@@ -62,7 +62,7 @@ func (s *MCPServer) registerTools() {
 
 	s.mcp.AddTool(
 		mcp.NewTool("proxy_add",
-			mcp.WithDescription("Add a proxy. Format: host:port or host:port:user:pass. Prefix socks5:// for SOCKS5."),
+			mcp.WithDescription("Not available: this server is read-only. Proxies are added in the Proxy0x desktop app."),
 			mcp.WithString("proxy", mcp.Required(), mcp.Description("Proxy string")),
 		),
 		s.handleProxyAdd,
@@ -70,7 +70,7 @@ func (s *MCPServer) registerTools() {
 
 	s.mcp.AddTool(
 		mcp.NewTool("proxy_remove",
-			mcp.WithDescription("Remove a proxy from the pool by ID."),
+			mcp.WithDescription("Not available: this server is read-only. Proxies are removed in the Proxy0x desktop app."),
 			mcp.WithString("id", mcp.Required(), mcp.Description("Proxy ID")),
 		),
 		s.handleProxyRemove,
@@ -204,38 +204,15 @@ func (s *MCPServer) handleProxyRotate(_ context.Context, req mcp.CallToolRequest
 	return mcp.NewToolResultText(string(data)), nil
 }
 
-func (s *MCPServer) handleProxyAdd(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	proxyStr, err := req.RequireString("proxy")
-	if err != nil {
-		return mcp.NewToolResultError("proxy string is required"), nil
-	}
+// The desktop app owns proxies.json; two writers would undo each other's changes.
+const readOnlyStoreMsg = "the Proxy0x MCP server is read-only: add or remove proxies in the Proxy0x app"
 
-	proxy, err := s.pool.Add(proxyStr)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	data, _ := json.MarshalIndent(map[string]interface{}{
-		"id":       proxy.ID,
-		"host":     proxy.Host,
-		"port":     proxy.Port,
-		"protocol": proxy.Protocol,
-		"status":   "added",
-	}, "", "  ")
-	return mcp.NewToolResultText(string(data)), nil
+func (s *MCPServer) handleProxyAdd(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return mcp.NewToolResultError(readOnlyStoreMsg), nil
 }
 
-func (s *MCPServer) handleProxyRemove(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	id, err := req.RequireString("id")
-	if err != nil {
-		return mcp.NewToolResultError("id is required"), nil
-	}
-
-	if err := s.pool.Remove(id); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	return mcp.NewToolResultText(fmt.Sprintf(`{"id":%q,"status":"removed"}`, id)), nil
+func (s *MCPServer) handleProxyRemove(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return mcp.NewToolResultError(readOnlyStoreMsg), nil
 }
 
 func (s *MCPServer) handleProxyHealth(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {

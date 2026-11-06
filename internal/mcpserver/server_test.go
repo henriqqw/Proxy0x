@@ -30,7 +30,7 @@ func TestServerCreation(t *testing.T) {
 	}
 }
 
-func TestHandleProxyAdd(t *testing.T) {
+func TestHandleProxyAddIsReadOnly(t *testing.T) {
 	srv := newTestServer(t)
 
 	req := mcp.CallToolRequest{}
@@ -42,16 +42,11 @@ func TestHandleProxyAdd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleProxyAdd protocol error: %v", err)
 	}
-	if result.IsError {
-		t.Fatal("handleProxyAdd returned tool error")
+	if !result.IsError {
+		t.Fatal("proxy_add must refuse: the MCP server is read-only")
 	}
-
-	list := srv.pool.List()
-	if len(list) != 1 {
-		t.Fatalf("pool has %d entries, want 1", len(list))
-	}
-	if list[0].Host != "1.2.3.4" {
-		t.Errorf("host = %q, want 1.2.3.4", list[0].Host)
+	if len(srv.pool.List()) != 0 {
+		t.Fatal("pool must not change")
 	}
 }
 
@@ -105,7 +100,7 @@ func TestHandleProxyStatus(t *testing.T) {
 	}
 }
 
-func TestHandleProxyRemove(t *testing.T) {
+func TestHandleProxyRemoveIsReadOnly(t *testing.T) {
 	srv := newTestServer(t)
 
 	entry, _ := srv.pool.Add("1.2.3.4:8080")
@@ -119,12 +114,11 @@ func TestHandleProxyRemove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if result.IsError {
-		t.Fatal("returned tool error")
+	if !result.IsError {
+		t.Fatal("proxy_remove must refuse: the MCP server is read-only")
 	}
-
-	if len(srv.pool.List()) != 0 {
-		t.Error("pool should be empty after remove")
+	if len(srv.pool.List()) != 1 {
+		t.Error("pool must not change")
 	}
 }
 

@@ -126,16 +126,6 @@ func (p *Pool) LoadFromStore() error {
 	return nil
 }
 
-func (p *Pool) SaveToStore() error {
-	p.mu.RLock()
-	entries := make([]*ProxyEntry, 0, len(p.proxies))
-	for _, e := range p.proxies {
-		entries = append(entries, e)
-	}
-	p.mu.RUnlock()
-	return p.store.Save(entries)
-}
-
 func (p *Pool) List() []*ProxyEntry {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -165,7 +155,6 @@ func (p *Pool) Add(raw string) (*ProxyEntry, error) {
 	p.proxies[entry.ID] = entry
 	p.mu.Unlock()
 	p.AddLog("added", entry.ID, entry.Address(), "")
-	p.SaveToStore()
 	return entry, nil
 }
 
@@ -181,7 +170,6 @@ func (p *Pool) Remove(id string) error {
 	p.closeClient(id + ":" + entry.SessionID)
 	p.mu.Unlock()
 	p.AddLog("removed", id, host, "")
-	p.SaveToStore()
 	return nil
 }
 
