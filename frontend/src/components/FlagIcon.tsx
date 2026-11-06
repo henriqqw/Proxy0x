@@ -6,15 +6,16 @@ interface Props {
 export default function FlagIcon({ countryCode, size = 14 }: Props) {
   if (!countryCode) return null
 
-  const code = countryCode.toUpperCase()
-  const flag = code
-    .split('')
-    .map(c => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65))
-    .join('')
+  const code = countryCode.toLowerCase()
 
   return (
-    <span style={{ fontSize: size, lineHeight: 1 }} title={code}>
-      {flag}
-    </span>
+    <img
+      src={`https://flagcdn.com/w40/${code}.png`}
+      srcSet={`https://flagcdn.com/w80/${code}.png 2x`}
+      alt={countryCode.toUpperCase()}
+      title={countryCode.toUpperCase()}
+      style={{ width: size, height: Math.round(size * 0.75), objectFit: 'cover', borderRadius: 2 }}
+      draggable={false}
+    />
   )
 }

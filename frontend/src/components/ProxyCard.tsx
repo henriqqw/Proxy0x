@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Power, PowerOff, RotateCw, RefreshCw,
+  Power, X, RotateCw,
   Trash2, Copy, MapPin, Clock, Wifi, Server,
   ChevronDown, Activity, Building2
 } from 'lucide-react'
 import {
   ConnectProxy, DisconnectProxy, RotateProxy,
-  RestartProxy, RemoveProxy
+  RemoveProxy
 } from 'wailsjs/go/main/App'
 import { main } from 'wailsjs/go/models'
 import StatusBadge from './StatusBadge'
@@ -134,7 +134,7 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
             />
           ) : (
             <ControlBtn
-              icon={<PowerOff size={12} />}
+              icon={<X size={12} />}
               label="Stop"
               onClick={() => action('disconnect', () => DisconnectProxy(proxy.id))}
               busy={busy === 'disconnect'}
@@ -146,13 +146,6 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
             onClick={() => action('rotate', () => RotateProxy(proxy.id))}
             busy={busy === 'rotate'}
             disabled={!isActive && !isConnecting}
-          />
-          <ControlBtn
-            icon={<RefreshCw size={12} />}
-            label="Restart"
-            onClick={() => action('restart', () => RestartProxy(proxy.id))}
-            busy={busy === 'restart'}
-            disabled={!isActive}
           />
         </div>
       </div>
