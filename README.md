@@ -1,8 +1,9 @@
 <p align="center">
-  <img src="assets/banner.png" alt="Proxy0x" width="700">
+  <img src="assets/icon.png" alt="Proxy0x" width="180">
 </p>
-
-<p align="center"><img src="assets/branding/proxy0x-banner.png" alt="Proxy0x — gerenciador de proxies" width="100%"></p>
+<p align="center">
+  <img src="assets/banner.png" alt="Proxy0x — Proxy Manager" width="600">
+</p>
 
 <p align="center">
   <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go 1.26"></a>
