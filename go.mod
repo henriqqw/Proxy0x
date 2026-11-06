@@ -1,12 +1,14 @@
 module proxy_ui
 
-go 1.25.5
+go 1.26.0
+
+toolchain go1.26.10
 
 require (
 	github.com/energye/systray v1.0.3
 	github.com/mark3labs/mcp-go v1.5.0
 	github.com/wailsapp/wails/v2 v2.16.0
-	golang.org/x/net v0.56.0
+	golang.org/x/net v0.60.0
 )
 
 require (
@@ -38,7 +40,7 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
-	golang.org/x/crypto v0.53.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.39.0 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 )

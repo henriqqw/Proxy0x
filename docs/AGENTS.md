@@ -2,7 +2,7 @@
 
 ## Overview
 
-Proxy0x is a Windows desktop proxy manager built with **Wails v2** (Go 1.25 backend + React 18 frontend). It manages HTTP and SOCKS5 proxies, routes browser traffic through a local proxy server, and includes an MCP server for AI agent integration.
+Proxy0x is a Windows desktop proxy manager built with **Wails v2** (Go 1.26 backend + React 18 frontend). It manages HTTP and SOCKS5 proxies, routes browser traffic through a local proxy server, and includes an MCP server for AI agent integration.
 
 ## Commands
 

@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/henriqqw/Proxy0x/releases"><img src="https://img.shields.io/github/v/release/henriqqw/Proxy0x?style=flat-square&color=68E045" alt="Release"></a>
   <a href="https://github.com/henriqqw/Proxy0x/releases"><img src="https://img.shields.io/github/downloads/henriqqw/Proxy0x/total?style=flat-square&color=4b5563" alt="Downloads"></a>
-  <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.25-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go 1.25"></a>
+  <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go 1.26"></a>
   <a href="https://wails.io/"><img src="https://img.shields.io/badge/Wails-2.16-DF0000?style=flat-square" alt="Wails 2.16"></a>
   <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-18-149ECA?style=flat-square&logo=react&logoColor=white" alt="React 18"></a>
 </p>
@@ -191,7 +191,7 @@ Browser ──► Local Proxy (127.0.0.1) ──► Upstream Proxy ──► Int
 
 | Layer | Technology | Role |
 |-------|------------|------|
-| Desktop | Go 1.25, Wails 2.16 | Frameless window, bindings, events, system tray |
+| Desktop | Go 1.26, Wails 2.16 | Frameless window, bindings, events, system tray |
 | Frontend | React 18, TypeScript 5.6, Tailwind CSS 3 | Components, theme system, responsive layout |
 | Drag & drop | @dnd-kit | Sortable proxy list with grip handles |
 | Icons | Lucide React | Consistent monochrome iconography |
@@ -206,7 +206,7 @@ Browser ──► Local Proxy (127.0.0.1) ──► Upstream Proxy ──► Int
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.26+
 - Node.js 18+ and npm
 - Wails CLI v2 (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
 

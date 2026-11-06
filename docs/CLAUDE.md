@@ -3,7 +3,7 @@
 ## Project
 
 Proxy0x — Windows desktop proxy manager.  
-Stack: Go 1.25 (backend) + React 18 / TypeScript 5.6 / Tailwind CSS 3 (frontend), connected via Wails v2 bindings.
+Stack: Go 1.26 (backend) + React 18 / TypeScript 5.6 / Tailwind CSS 3 (frontend), connected via Wails v2 bindings.
 
 ## Build & Test
 
