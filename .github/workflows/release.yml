@@ -78,25 +78,23 @@ jobs:
           VERSION=${{ steps.version.outputs.version }}
           sed -i "s/\"productVersion\": \".*\"/\"productVersion\": \"$VERSION\"/" wails.json
 
-      - name: Build amd64 (64-bit)
+      - name: Build amd64 (64-bit) with installer
         if: steps.check.outputs.needed == 'true'
         shell: bash
         run: |
           export PATH="/c/Program Files (x86)/NSIS:/c/Program Files/NSIS:$PATH"
           wails build -nsis -windowsconsole=false -platform windows/amd64
-          mv build/bin/Proxy0x.exe build/bin/Proxy0x-win64.exe
+          cp build/bin/Proxy0x.exe build/bin/Proxy0x-win64.exe
           mv build/bin/Proxy0x-amd64-installer.exe build/bin/Proxy0x-win64-installer.exe
 
-      - name: Build 386 (32-bit)
+      - name: Build 386 (32-bit) portable
         if: steps.check.outputs.needed == 'true'
         shell: bash
         run: |
-          export PATH="/c/Program Files (x86)/NSIS:/c/Program Files/NSIS:$PATH"
-          wails build -nsis -windowsconsole=false -platform windows/386
+          wails build -windowsconsole=false -platform windows/386 -skipbindings
           mv build/bin/Proxy0x.exe build/bin/Proxy0x-win32.exe
-          mv build/bin/Proxy0x-386-installer.exe build/bin/Proxy0x-win32-installer.exe
 
-      - name: Build arm64
+      - name: Build arm64 portable
         if: steps.check.outputs.needed == 'true'
         shell: bash
         run: |
@@ -122,7 +120,6 @@ jobs:
             echo "|------|-------------|"
             echo "| \`Proxy0x-win64-installer.exe\` | Windows 64-bit installer (recommended) |"
             echo "| \`Proxy0x-win64.exe\` | Windows 64-bit portable |"
-            echo "| \`Proxy0x-win32-installer.exe\` | Windows 32-bit installer |"
             echo "| \`Proxy0x-win32.exe\` | Windows 32-bit portable |"
             echo "| \`Proxy0x-arm64.exe\` | Windows ARM64 portable |"
             echo ""
@@ -158,6 +155,5 @@ jobs:
           files: |
             build/bin/Proxy0x-win64-installer.exe
             build/bin/Proxy0x-win64.exe
-            build/bin/Proxy0x-win32-installer.exe
             build/bin/Proxy0x-win32.exe
             build/bin/Proxy0x-arm64.exe
