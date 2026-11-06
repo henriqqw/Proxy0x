@@ -50,13 +50,29 @@ Nenhuma regressão encontrada. Nenhum item precisou ser revertido.
 
 | ID | Motivo |
 |---|---|
-| SEC-01 (DPAPI) | A sessão **dev2** já implementou na `main` (não commitado), incluindo `.key.legacy`. Evita trabalho duplicado. |
-| CORE-16 (fail-closed) | O dev2 está implementando kill switch e auto failover, que definem esse comportamento. |
+| SEC-01 (DPAPI) | Implementado pelo **dev2** na `main` (`d6c1e0d`). Nesta branch: correção do vet e a chave compartilhada com o MCP (ver "Integração"). |
+| CORE-16 (fail-closed) | Definido pelo kill switch e pelo auto failover do dev2. |
 | Lote 7 — FE-01…FE-07, PRIV-01, parte de frontend do SEC-02 | O dev2 está editando o frontend e as traduções agora. Aplicar em paralelo garantiria conflito. Retomar depois que ele commitar. |
 | DEAD-01 | O dev2 pode passar a usar bindings que hoje parecem mortos (logs/histórico, grupos, `RestartProxy` no failover). Reavaliar depois do commit dele. |
-| OPS-01/02/03 (Lote 5) | Exigem push da branch para o dry-run do CI, e o plano pede aprovação antes. |
 | ARCH-01 | Esforço G; vai para o roadmap (modo EVOLUIR). |
 | Caminho do Codex (`config.json` → `config.toml`) | Exige escrever TOML (código novo ou dependência). Fica registrado como **Hipótese** para quem mantém a integração (dev2). |
+
+## Integração com a `main` (features do dev2) e Lote 5
+
+| Item | Commit | Teste | Observação |
+|---|---|---|---|
+| Merge `origin/main` | `3a9beb1`, `c47eb5e` | suíte completa | Único conflito textual: imports do `app.go`. |
+| X-04 (novo, **crítico**) Servidor MCP sobrescrevia a chave DPAPI | `7f41f86` | `TestStoreReadsTheAppsDPAPIKeyWithoutReplacingIt` | Reproduzido: `cipher: message authentication failed`. O store do MCP tinha sua própria cópia do código de chave: via o `.key` DPAPI como "inválido", gerava uma chave nova e gravava por cima, e o app perdia todas as senhas salvas. Agora o MCP usa `internal/crypto` (passo 1 do SEC-01 / ARCH-01 para crypto). |
+| `go vet` quebrado pelo DPAPI | `3974286` | `TestDPAPIRoundTrip`, `TestStoreEncryptDecryptWithDPAPIKey` | `possible misuse of unsafe.Pointer`. Trocado pelos wrappers do `x/sys/windows`, mesmo formato de chave. |
+| X-05 Features novas contornavam as correções | `de56583` | `TestSetProxyNameReturnsCopyAndRespectsReadOnly`, `TestAddProxiesMultiFormatRespectsReadOnly`, `TestBulkCheckRequiresValidExitIP` | Checagens de IP sem status (um 429 contava como vivo), `http.Get` sem timeout, `runtime.EventsEmit` direto (derruba o processo fora do Wails), ponteiros vivos com senha, modo só leitura ignorado. |
+| OPS-01/02/03 | `0d34283` | ISCC local gerou `Proxy0x-Setup-0.0.0-test.exe` (7 MB) | Release só por tag `v*`. Actions fixadas por SHA, Wails v2.16.0, instalador Inno com `proxy0x-mcp.exe`. Textos nativos (UTF-8 com BOM). `SourceDir=..`, porque o `.iss` foi movido para `build/` e todos os caminhos relativos quebraram. O workflow em si **ainda não rodou no GitHub**; roda na primeira tag. |
+
+### Riscos nas features novas (não corrigidos; decisão de produto)
+
+- **Kill switch:** cria uma regra de *bloqueio* de saída mais regras de *permissão* no Windows Firewall. Pela documentação do firewall, regras de bloqueio têm precedência sobre as de permissão, então o kill switch pode bloquear a internet inteira, inclusive o próprio Proxy0x. **Hipótese não testada**: testar exige mexer no firewall. O script elevado é gravado num caminho fixo do `%TEMP%` e apagado logo depois do `ShellExecute`, que é assíncrono: pode ser apagado antes de rodar, ou trocado por outro processo nesse intervalo. Se o app morrer com o kill switch ligado, as regras ficam no sistema.
+- **"DNS leak test":** compara o IP de saída do proxy com o IP direto. Não testa o resolvedor DNS.
+- **Import:** `socks4://` é tratado como SOCKS5.
+- **Integração Codex:** escreve em `~/.codex/config.json`, mas o Codex usa `config.toml` (Hipótese).
 
 ## Verificação manual pendente (não feita nesta fase)
 
@@ -72,4 +88,4 @@ Nenhuma regressão encontrada. Nenhum item precisou ser revertido.
 - `RemoveProxy` e `ReorderProxies` agora retornam `error` (em TS continua `Promise<void>`). O frontend ainda não trata a rejeição no modo só leitura. Isso entra no lote de frontend.
 - O evento `store-error` ainda não tem ouvinte na UI, então o modo só leitura fica invisível para o usuário até o lote de frontend.
 - Sem detector de race nesta máquina.
-- As releases v1.0.5–v1.0.11 continuam publicadas, e o CI ainda publica a cada push na `main` até o Lote 5 entrar.
+- As releases automáticas v1.0.5–v1.0.14 continuam publicadas (nada foi apagado); a próxima tag passa a ser a "Latest".
