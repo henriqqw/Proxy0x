@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"proxy_ui/internal/crypto"
 	"proxy_ui/internal/proxy"
@@ -70,6 +71,7 @@ type fakeUpstream struct {
 	status   int
 	body     string
 	requests int
+	geoDelay time.Duration
 }
 
 func (f *fakeUpstream) set(status int, body string) {
@@ -84,9 +86,10 @@ func startFakeUpstream(t *testing.T) (*fakeUpstream, string, string) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.requests++
-		status, body := f.status, f.body
+		status, body, geoDelay := f.status, f.body, f.geoDelay
 		f.mu.Unlock()
 		if strings.HasPrefix(r.URL.Host, "geo.test") {
+			time.Sleep(geoDelay)
 			w.Write([]byte(`{"country":"Testland","country_code":"TL","city":"Testville"}`))
 			return
 		}
@@ -212,6 +215,28 @@ func TestHealthCheckFailsOnNon200(t *testing.T) {
 
 	if p.Status != StatusError {
 		t.Fatalf("status=%s, want error", p.Status)
+	}
+}
+
+func TestHealthCheckDoesNotHoldLockDuringGeoLookup(t *testing.T) {
+	a, _ := newTestApp(t)
+	up, host, port := startFakeUpstream(t)
+	p := addTestProxy(t, a, host, port)
+	if _, err := a.ConnectProxy(p.ID); err != nil {
+		t.Fatal(err)
+	}
+	up.mu.Lock()
+	up.body = `{"ip":"198.51.100.9"}` // IP changed -> geo lookup
+	up.geoDelay = 500 * time.Millisecond
+	up.mu.Unlock()
+
+	go a.CheckHealth(p.ID)
+	time.Sleep(150 * time.Millisecond) // health check is now inside the geo lookup
+
+	start := time.Now()
+	a.GetProxies()
+	if d := time.Since(start); d > 100*time.Millisecond {
+		t.Fatalf("GetProxies blocked %v while the health check did network I/O", d)
 	}
 }
 

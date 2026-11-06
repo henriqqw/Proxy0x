@@ -848,12 +848,19 @@ func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
 		return p, nil
 	}
 
+	a.mu.RLock()
+	ipChanged := ip != p.CurrentIP
+	a.mu.RUnlock()
+	var geo *GeoInfo
+	if ipChanged {
+		geo = a.fetchGeoInfo(client, ip)
+	}
+
 	a.mu.Lock()
 	p.Latency = latency
 	p.LastCheck = time.Now().Format(time.RFC3339)
-	if ip != p.CurrentIP {
+	if ipChanged {
 		p.CurrentIP = ip
-		geo := a.fetchGeoInfo(client, ip)
 		p.Location = geo
 	}
 	a.mu.Unlock()
