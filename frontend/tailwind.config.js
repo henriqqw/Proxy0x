@@ -42,7 +42,7 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'SF Pro Display', 'Segoe UI', 'sans-serif'],
+        sans: ['Segoe UI Variable Text', 'Segoe UI', 'system-ui', '-apple-system', 'sans-serif'],
         mono: ['SF Mono', 'Cascadia Code', 'Consolas', 'monospace'],
       },
       borderRadius: {
