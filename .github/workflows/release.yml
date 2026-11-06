@@ -78,14 +78,35 @@ jobs:
           VERSION=${{ steps.version.outputs.version }}
           sed -i "s/\"productVersion\": \".*\"/\"productVersion\": \"$VERSION\"/" wails.json
 
-      - name: Build installer
+      - name: Build amd64 (64-bit)
         if: steps.check.outputs.needed == 'true'
         shell: bash
-        env:
-          PATH: /c/Program Files (x86)/NSIS:/c/Program Files/NSIS:${{ env.PATH }}
         run: |
           export PATH="/c/Program Files (x86)/NSIS:/c/Program Files/NSIS:$PATH"
-          wails build -nsis -windowsconsole=false
+          wails build -nsis -windowsconsole=false -platform windows/amd64
+          mv build/bin/Proxy0x.exe build/bin/Proxy0x-win64.exe
+          mv build/bin/Proxy0x-amd64-installer.exe build/bin/Proxy0x-win64-installer.exe
+
+      - name: Build 386 (32-bit)
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        run: |
+          export PATH="/c/Program Files (x86)/NSIS:/c/Program Files/NSIS:$PATH"
+          wails build -nsis -windowsconsole=false -platform windows/386
+          mv build/bin/Proxy0x.exe build/bin/Proxy0x-win32.exe
+          mv build/bin/Proxy0x-386-installer.exe build/bin/Proxy0x-win32-installer.exe
+
+      - name: Build arm64
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        run: |
+          wails build -windowsconsole=false -platform windows/arm64 -skipbindings
+          mv build/bin/Proxy0x.exe build/bin/Proxy0x-arm64.exe
+
+      - name: List artifacts
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        run: ls -la build/bin/
 
       - name: Generate changelog
         if: steps.check.outputs.needed == 'true'
@@ -95,6 +116,16 @@ jobs:
           LATEST=$(git tag -l 'v*' --sort=-v:refname | head -1)
           {
             echo 'body<<CHANGELOG_EOF'
+            echo "## Downloads"
+            echo ""
+            echo "| File | Description |"
+            echo "|------|-------------|"
+            echo "| \`Proxy0x-win64-installer.exe\` | Windows 64-bit installer (recommended) |"
+            echo "| \`Proxy0x-win64.exe\` | Windows 64-bit portable |"
+            echo "| \`Proxy0x-win32-installer.exe\` | Windows 32-bit installer |"
+            echo "| \`Proxy0x-win32.exe\` | Windows 32-bit portable |"
+            echo "| \`Proxy0x-arm64.exe\` | Windows ARM64 portable |"
+            echo ""
             echo "## What's Changed"
             echo ""
             if [ -z "$LATEST" ]; then
@@ -125,4 +156,8 @@ jobs:
           name: Proxy0x ${{ steps.version.outputs.tag }}
           body: ${{ steps.changelog.outputs.body }}
           files: |
-            build/bin/Proxy0x-amd64-installer.exe
+            build/bin/Proxy0x-win64-installer.exe
+            build/bin/Proxy0x-win64.exe
+            build/bin/Proxy0x-win32-installer.exe
+            build/bin/Proxy0x-win32.exe
+            build/bin/Proxy0x-arm64.exe
