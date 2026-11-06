@@ -10,11 +10,11 @@
   <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-18-149ECA?style=flat-square&logo=react&logoColor=white" alt="React 18"></a>
 </p>
 <p align="center">
-  <a href="https://github.com/henriqqw/Proxy0x/releases/latest">⬇ Download</a>
-  · <a href="https://github.com/henriqqw/Proxy0x/issues">🐛 Report issue</a>
+  <a href="https://github.com/henriqqw/Proxy0x/releases/latest">Download</a>
+  · <a href="https://github.com/henriqqw/Proxy0x/issues">Report issue</a>
 </p>
 
-Lightweight Windows proxy manager widget. Add residential proxies, rotate IPs by session, monitor latency and geolocation in real time. Dark/light theme, 16 languages, frameless window with system tray. Built with **Go**, **Wails** and **React**.
+Windows desktop proxy manager. Route all browser traffic through HTTP or SOCKS5 proxies via a local proxy server, rotate IPs by session, run speed tests, organize proxies by group, and monitor latency and geolocation in real time. 16 languages, frameless dark UI with system tray. Built with **Go**, **Wails** and **React**.
 
 ## Screenshots
 
@@ -28,31 +28,39 @@ Lightweight Windows proxy manager widget. Add residential proxies, rotate IPs by
 
 | File | Description |
 |------|-------------|
-| `Proxy0x-win64-installer.exe` | Windows 64-bit installer (recommended) |
-| `Proxy0x-win64.exe` | Windows 64-bit portable |
-| `Proxy0x-win32.exe` | Windows 32-bit portable |
-| `Proxy0x-arm64.exe` | Windows ARM64 portable |
+| `Proxy0x-Setup-1.0.0.exe` | Windows installer — language selector, install location, startup option |
+| `Proxy0x.exe` | Standalone portable executable |
 
-Download from the [latest release](https://github.com/henriqqw/Proxy0x/releases/latest). No runtime or external dependencies required.
+Download from the [latest release](https://github.com/henriqqw/Proxy0x/releases/latest).
+
+### Installer features
+
+- 14 language options for the installer UI
+- Custom install location
+- Desktop shortcut (optional)
+- Start on Windows boot (optional)
+- Full uninstaller via Add/Remove Programs
 
 ## Features
 
 | Area | Details |
 |------|---------|
-| Proxy management | Add single proxy, batch import (paste multiple), drag-to-reorder, remove |
-| Connection | Connect, disconnect, rotate IP via session ID |
-| Monitoring | Current IP, latency (ms), live uptime timer, connection status |
+| Protocols | HTTP and SOCKS5 proxy support |
+| System proxy | Local proxy server routes all browser traffic through the selected proxy |
+| Proxy management | Add single proxy, batch import, drag-to-reorder, remove, import/export JSON |
+| Proxy groups | Tag proxies with groups, filter by group |
+| Connection | Connect, disconnect (instant), rotate IP via session ID |
+| Auto rotation | Configurable interval with presets (1m, 3m, 5m, 10m) or custom minutes |
+| Speed test | Measure connect latency (ms) and download speed (Mbps) per proxy |
+| Monitoring | Current IP, latency, live uptime timer, connection status badge |
 | Geolocation | Country flag, city, region, ISP, timezone, AS number, organization |
-| Health check | Auto-check every 90s with connection pooling, Windows notification on proxy drop |
-| Connection log | Timestamped log of connect/disconnect/rotate events |
+| Health check | Automatic health checks every 3 minutes, Windows notification on proxy drop |
 | Connection stats | Connected-at time, total uptime per proxy (persisted across sessions) |
 | Encryption | AES-GCM credential encryption with per-machine key |
 | Persistence | Proxies saved to `%APPDATA%/Proxy0x/proxies.json`, auto-restored on startup |
 | i18n | 16 languages — EN, PT-BR, PT-PT, ES, FR, DE, IT, RU, JA, KO, ZH-CN, AR, HI, TR, TH, PL |
-| Theme | Dark/light toggle, persisted preference |
 | System tray | Minimize to tray, language submenu, connect/disconnect/rotate all, quit |
-| Interface | Frameless window, drag-to-reorder, loading skeletons, Framer Motion animations |
-| Accessibility | aria-labels on all interactive elements, keyboard navigation |
+| Interface | Frameless window, drag-to-reorder, loading skeletons, mouse back/forward navigation |
 
 ## Proxy format
 
@@ -64,40 +72,61 @@ Residential proxies with geographic targeting (DataImpulse, etc.) are supported.
 
 ## Usage
 
-1. Paste a proxy in the input field or use **Batch import** for multiple at once.
-2. Click **Connect** to see the IP, location and latency.
-3. Use **Rotate** to get a new IP on the same server.
-4. Drag the grip handle to reorder proxies.
-5. Toggle theme with the sun/moon button. Change language via the globe button or right-click context menu.
-6. Close the window — the app minimizes to system tray. Click the tray icon to restore; use **Quit** to exit.
+1. Paste a proxy in `host:port:user:pass` format or use **Batch Import** for multiple at once.
+2. Click **Connect** — the app starts a local proxy server and routes your browser traffic through it.
+3. See the proxy's real IP, country flag, city, ISP and latency.
+4. Use **Rotate** to get a new IP, or enable **Auto Rotation** in settings with a preset or custom interval.
+5. Run **Speed Test** to measure connect latency and download speed.
+6. Assign proxies to **groups** for filtering (click the group label in the expanded card).
+7. Change language via the globe button in the title bar.
+8. Close the window — the app minimizes to system tray. Click the tray icon to restore; use **Quit** to exit.
+
+## How it works
+
+Proxy0x runs a local HTTP/SOCKS5 proxy server on `127.0.0.1`. When you connect a proxy, the app:
+
+1. Starts a local listener that accepts browser connections
+2. Sets the Windows system proxy to point to this local server
+3. Forwards all traffic through the selected upstream proxy
+4. Tracks all connections for instant disconnect (no hanging)
+
+```
+Browser ──► Local Proxy (127.0.0.1) ──► Upstream Proxy ──► Internet
+              │                              │
+              │ HTTP CONNECT / SOCKS5        │ Residential IP
+              │ Connection tracking          │ Session rotation
+              ▼                              ▼
+         Windows System Proxy          api.ipify.org (IP)
+         (auto-configured)             ip-api.com (geo)
+```
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│             Wails WebView2              │
-│  ┌───────────────────────────────────┐  │
-│  │   React + TypeScript + Tailwind   │  │
-│  │   Framer Motion · Lucide · i18n   │  │
-│  │   @dnd-kit (drag & drop)          │  │
-│  └──────────────┬────────────────────┘  │
-│                 │ bindings               │
-│  ┌──────────────▼────────────────────┐  │
-│  │          Go Backend               │  │
-│  │  Proxy Manager · Health Checker   │  │
-│  │  AES-GCM Crypto · Config Store   │  │
-│  │  Connection Pool · Log Manager    │  │
-│  └──────────────┬────────────────────┘  │
-│                 │                        │
-│  ┌──────────────▼────────────────────┐  │
-│  │         System Tray               │  │
-│  │   energye/systray · Language      │  │
-│  └───────────────────────────────────┘  │
-└─────────────────────────────────────────┘
-          │                    │
-          ▼                    ▼
-   api.ipify.org         ip-api.com
-   (IP lookup)          (geolocation)
+┌──────────────────────────────────────────────┐
+│              Wails WebView2                  │
+│  ┌────────────────────────────────────────┐  │
+│  │    React + TypeScript + Tailwind       │  │
+│  │    Lucide · @dnd-kit · i18n (16 lang)  │  │
+│  └─────────────────┬──────────────────────┘  │
+│                    │ bindings                 │
+│  ┌─────────────────▼──────────────────────┐  │
+│  │           Go Backend                   │  │
+│  │  Proxy Manager · Local Proxy Server    │  │
+│  │  HTTP & SOCKS5 · Health Checker        │  │
+│  │  Speed Test · Auto Rotation            │  │
+│  │  AES-GCM Crypto · Config Store         │  │
+│  └─────────────────┬──────────────────────┘  │
+│                    │                         │
+│  ┌─────────────────▼──────────────────────┐  │
+│  │          System Tray                   │  │
+│  │    energye/systray · Language menu     │  │
+│  └────────────────────────────────────────┘  │
+└──────────────────────────────────────────────┘
+         │              │              │
+         ▼              ▼              ▼
+   api.ipify.org   ip-api.com    Windows System
+   (IP lookup)    (geolocation)  Proxy Settings
 ```
 
 ## Stack
@@ -106,14 +135,13 @@ Residential proxies with geographic targeting (DataImpulse, etc.) are supported.
 |-------|------------|------|
 | Desktop | Go 1.25, Wails 2.16 | Frameless window, bindings, events, system tray |
 | Frontend | React 18, TypeScript 5.6, Tailwind CSS 3 | Components, theme system, responsive layout |
-| Animations | Framer Motion 11 | Transitions, loading states, layout animations |
 | Drag & drop | @dnd-kit | Sortable proxy list with grip handles |
 | Icons | Lucide React | Consistent monochrome iconography |
-| Flags | flagcdn.com | Real country flag images with lazy loading |
+| Flags | flagcdn.com | Country flag images with lazy loading |
 | Tray | energye/systray | System tray icon with language and control submenus |
 | Crypto | AES-GCM (stdlib) | Credential encryption at rest |
-| Network | net/http (stdlib) | HTTP proxy client, connection pooling, health check |
-| CI/CD | GitHub Actions | Auto-release with NSIS installer on push to main |
+| Network | net/http, net (stdlib) | HTTP & SOCKS5 proxy, connection pooling, health check |
+| Installer | Inno Setup 6 | Windows installer with i18n and startup option |
 
 ## Development
 
@@ -135,49 +163,63 @@ Frontend updates instantly via Vite HMR. Go changes recompile and restart the ap
 ### Production build
 
 ```bash
-wails build
+wails build -ldflags "-s -w"
 ```
 
 Binary output: `build/bin/Proxy0x.exe`
 
-### NSIS installer
+### Installer build
+
+Requires [Inno Setup 6](https://jrsoftware.org/isinfo.php).
 
 ```bash
-wails build -nsis
+iscc installer.iss
 ```
 
-Generates `build/bin/Proxy0x-amd64-installer.exe`.
+Generates `build/installer/Proxy0x-Setup-1.0.0.exe`.
 
 ## Project structure
 
 ```
-proxy_ui/
-├── main.go              # Entry point, Wails config
-├── app.go               # Proxy manager, health checker, geo lookup, config, logging
-├── crypto.go            # AES-GCM credential encryption
-├── tray.go              # System tray with language submenu
-├── wails.json           # Wails project config
-├── .github/workflows/
-│   └── release.yml      # CI: auto-tag, build, release on push to main
+Proxy0x/
+├── main.go                      # Entry point, Wails config
+├── app.go                       # App struct, Wails-bound methods, types
+├── tray.go                      # System tray with language submenu
+├── internal/
+│   ├── proxy/
+│   │   ├── server.go            # Local HTTP/SOCKS5 proxy server, connection tracking
+│   │   └── system.go            # Windows system proxy settings (registry)
+│   ├── crypto/
+│   │   └── crypto.go            # AES-GCM credential encryption
+│   └── config/
+│       └── config.go            # App configuration (load, save, defaults)
+├── installer.iss                # Inno Setup installer script
+├── wails.json                   # Wails project config
 ├── build/
-│   ├── bin/             # Production binary
-│   └── windows/         # Icon, manifest, metadata
+│   ├── bin/                     # Production binary
+│   ├── installer/               # Installer output
+│   └── windows/                 # Icons (icon.ico, tray.ico), manifest
+├── assets/
+│   ├── banner.png               # README banner
+│   ├── icon.png                 # App icon (transparent)
+│   └── screenshots/             # README screenshots
 └── frontend/
     ├── src/
-    │   ├── App.tsx              # Root component with DndContext
+    │   ├── App.tsx              # Root component with DndContext, mouse navigation
     │   ├── i18n/
     │   │   ├── translations.ts  # 16 language translation sets
-    │   │   └── LanguageContext.tsx  # React i18n context provider
+    │   │   └── LanguageContext.tsx
     │   └── components/
     │       ├── TitleBar.tsx      # Window controls, theme toggle, language selector
-    │       ├── ProxyCard.tsx     # Sortable proxy card with stats and controls
+    │       ├── ProxyCard.tsx     # Sortable proxy card with stats, speed test, groups
     │       ├── ProxyForm.tsx     # Input and batch import
+    │       ├── SettingsPage.tsx  # Auto rotation, import/export, language, about
     │       ├── ContextMenu.tsx   # Right-click language selector
     │       ├── StatusBadge.tsx   # Animated status indicator
     │       ├── MyIPBadge.tsx     # User's real IP display
     │       ├── FlagIcon.tsx      # Country flag from flagcdn
-    │       └── EmptyState.tsx    # Empty state
-    ├── wailsjs/                  # Auto-generated Go ↔ TypeScript bindings
+    │       └── EmptyState.tsx    # Empty state illustration
+    ├── wailsjs/                  # Auto-generated Go <> TypeScript bindings
     └── tailwind.config.js        # Theme tokens (CSS variables)
 ```
 
@@ -189,8 +231,7 @@ proxy_ui/
 | [ip-api.com](http://ip-api.com/) | IP geolocation (country, city, ISP, AS) | 45 req/min (free tier) |
 | [flagcdn.com](https://flagcdn.com/) | Country flag images | CDN, no limit |
 
-## Known limitations
+## Requirements
 
-- HTTP proxy protocol only (not SOCKS5).
-- Tested with DataImpulse proxies; other providers using `host:port:user:pass` format should work.
-- Health check uses `api.ipify.org`, which may be blocked by some networks.
+- Windows 10/11
+- WebView2 Runtime (pre-installed on Windows 10 21H2+ and Windows 11)

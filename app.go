@@ -11,11 +11,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"proxy_ui/internal/config"
+	"proxy_ui/internal/crypto"
+	"proxy_ui/internal/proxy"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	netproxy "golang.org/x/net/proxy"
@@ -77,10 +80,11 @@ type App struct {
 	clients    map[string]*http.Client
 	mu         sync.RWMutex
 	lpMu       sync.Mutex
-	localProxy *LocalProxy
+	localProxy *proxy.LocalServer
 	stopCh     chan struct{}
 	logs       []LogEntry
 	logMu      sync.RWMutex
+	crypt      *crypto.Store
 }
 
 func NewApp() *App {
@@ -89,8 +93,89 @@ func NewApp() *App {
 		clients: make(map[string]*http.Client),
 		stopCh:  make(chan struct{}),
 		logs:    make([]LogEntry, 0, 200),
+		crypt:   crypto.NewStore(config.DataDir()),
 	}
 }
+
+// --- Lifecycle ---
+
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+	proxy.ClearSystemProxy()
+	a.loadProxies()
+	go a.setupTray()
+	go a.healthCheckLoop()
+	go a.autoRotateLoop()
+}
+
+func (a *App) shutdown(ctx context.Context) {
+	a.lpMu.Lock()
+	if a.localProxy != nil {
+		a.localProxy.Stop()
+		a.localProxy = nil
+		proxy.ClearSystemProxy()
+	}
+	a.lpMu.Unlock()
+	close(a.stopCh)
+}
+
+// --- Window controls ---
+
+func (a *App) MinimizeWindow() { runtime.WindowMinimise(a.ctx) }
+func (a *App) CloseWindow()    { runtime.WindowHide(a.ctx) }
+func (a *App) ShowWindow()     { runtime.WindowShow(a.ctx) }
+func (a *App) ToggleMaximize() { runtime.WindowToggleMaximise(a.ctx) }
+
+func (a *App) QuitApp() {
+	a.lpMu.Lock()
+	if a.localProxy != nil {
+		a.localProxy.Stop()
+		a.localProxy = nil
+	}
+	a.lpMu.Unlock()
+	proxy.ClearSystemProxy()
+	runtime.Quit(a.ctx)
+}
+
+// --- Config ---
+
+func (a *App) GetLanguage() string         { return config.Load().Language }
+func (a *App) GetTheme() string            { return config.Load().Theme }
+func (a *App) GetAutoRotateInterval() int  { return config.Load().AutoRotateInterval }
+func (a *App) GetHealthCheckInterval() int { return config.Load().HealthCheckInterval }
+
+func (a *App) SetLanguage(lang string) {
+	cfg := config.Load()
+	cfg.Language = lang
+	config.Save(cfg)
+	runtime.EventsEmit(a.ctx, "language-changed", lang)
+}
+
+func (a *App) SetTheme(theme string) {
+	cfg := config.Load()
+	cfg.Theme = theme
+	config.Save(cfg)
+	runtime.EventsEmit(a.ctx, "theme-changed", theme)
+}
+
+func (a *App) SetAutoRotateInterval(seconds int) {
+	cfg := config.Load()
+	cfg.AutoRotateInterval = seconds
+	config.Save(cfg)
+	runtime.EventsEmit(a.ctx, "config-changed", cfg)
+}
+
+func (a *App) SetHealthCheckInterval(seconds int) {
+	if seconds < 60 {
+		seconds = 60
+	}
+	cfg := config.Load()
+	cfg.HealthCheckInterval = seconds
+	config.Save(cfg)
+	runtime.EventsEmit(a.ctx, "config-changed", cfg)
+}
+
+// --- Logging ---
 
 func (a *App) addLog(action, proxyID, host, detail string) {
 	entry := LogEntry{
@@ -120,102 +205,10 @@ func (a *App) GetConnectionLog() []LogEntry {
 	return result
 }
 
-func (a *App) dataDir() string {
-	dir, _ := os.UserConfigDir()
-	return filepath.Join(dir, "Proxy0x")
-}
-
-func (a *App) dataFile() string {
-	return filepath.Join(a.dataDir(), "proxies.json")
-}
-
-func (a *App) configFile() string {
-	return filepath.Join(a.dataDir(), "config.json")
-}
-
-type AppConfig struct {
-	Language            string `json:"language"`
-	Theme               string `json:"theme"`
-	AutoRotateInterval  int    `json:"autoRotateInterval"`
-	HealthCheckInterval int    `json:"healthCheckInterval"`
-}
-
-func (a *App) loadConfig() AppConfig {
-	data, err := os.ReadFile(a.configFile())
-	if err != nil {
-		return AppConfig{Language: "en", Theme: "dark", HealthCheckInterval: 180}
-	}
-	var cfg AppConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return AppConfig{Language: "en", Theme: "dark", HealthCheckInterval: 180}
-	}
-	if cfg.Language == "" {
-		cfg.Language = "en"
-	}
-	if cfg.Theme == "" {
-		cfg.Theme = "dark"
-	}
-	if cfg.HealthCheckInterval <= 0 {
-		cfg.HealthCheckInterval = 180
-	}
-	return cfg
-}
-
-func (a *App) saveConfig(cfg AppConfig) {
-	os.MkdirAll(a.dataDir(), 0o700)
-	data, _ := json.MarshalIndent(cfg, "", "  ")
-	os.WriteFile(a.configFile(), data, 0o600)
-}
-
-func (a *App) GetLanguage() string {
-	return a.loadConfig().Language
-}
-
-func (a *App) SetLanguage(lang string) {
-	cfg := a.loadConfig()
-	cfg.Language = lang
-	a.saveConfig(cfg)
-	runtime.EventsEmit(a.ctx, "language-changed", lang)
-}
-
-func (a *App) GetTheme() string {
-	return a.loadConfig().Theme
-}
-
-func (a *App) SetTheme(theme string) {
-	cfg := a.loadConfig()
-	cfg.Theme = theme
-	a.saveConfig(cfg)
-	runtime.EventsEmit(a.ctx, "theme-changed", theme)
-}
-
-func (a *App) GetAutoRotateInterval() int {
-	return a.loadConfig().AutoRotateInterval
-}
-
-func (a *App) SetAutoRotateInterval(seconds int) {
-	cfg := a.loadConfig()
-	cfg.AutoRotateInterval = seconds
-	a.saveConfig(cfg)
-	runtime.EventsEmit(a.ctx, "config-changed", cfg)
-}
-
-func (a *App) GetHealthCheckInterval() int {
-	return a.loadConfig().HealthCheckInterval
-}
-
-func (a *App) SetHealthCheckInterval(seconds int) {
-	if seconds < 60 {
-		seconds = 60
-	}
-	cfg := a.loadConfig()
-	cfg.HealthCheckInterval = seconds
-	a.saveConfig(cfg)
-	runtime.EventsEmit(a.ctx, "config-changed", cfg)
-}
+// --- Persistence ---
 
 func (a *App) loadProxies() {
-	data, err := os.ReadFile(a.dataFile())
+	data, err := os.ReadFile(config.DataFile())
 	if err != nil {
 		return
 	}
@@ -225,10 +218,10 @@ func (a *App) loadProxies() {
 	}
 	a.mu.Lock()
 	for _, p := range entries {
-		if dec, err := a.decrypt(p.Username); err == nil {
+		if dec, err := a.crypt.Decrypt(p.Username); err == nil {
 			p.Username = dec
 		}
-		if dec, err := a.decrypt(p.Password); err == nil {
+		if dec, err := a.crypt.Decrypt(p.Password); err == nil {
 			p.Password = dec
 		}
 		p.Status = StatusOffline
@@ -245,10 +238,10 @@ func (a *App) saveProxies() {
 	entries := make([]*ProxyEntry, 0, len(a.proxies))
 	for _, p := range a.proxies {
 		clone := *p
-		if enc, err := a.encrypt(clone.Username); err == nil {
+		if enc, err := a.crypt.Encrypt(clone.Username); err == nil {
 			clone.Username = enc
 		}
-		if enc, err := a.encrypt(clone.Password); err == nil {
+		if enc, err := a.crypt.Encrypt(clone.Password); err == nil {
 			clone.Password = enc
 		}
 		clone.Status = StatusOffline
@@ -259,57 +252,12 @@ func (a *App) saveProxies() {
 	}
 	a.mu.RUnlock()
 
-	os.MkdirAll(a.dataDir(), 0o700)
+	os.MkdirAll(config.DataDir(), 0o700)
 	data, _ := json.MarshalIndent(entries, "", "  ")
-	os.WriteFile(a.dataFile(), data, 0o600)
+	os.WriteFile(config.DataFile(), data, 0o600)
 }
 
-func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
-	clearSystemProxy()
-	a.loadProxies()
-	go a.setupTray()
-	go a.healthCheckLoop()
-	go a.autoRotateLoop()
-}
-
-func (a *App) shutdown(ctx context.Context) {
-	a.lpMu.Lock()
-	if a.localProxy != nil {
-		a.localProxy.stop()
-		a.localProxy = nil
-		clearSystemProxy()
-	}
-	a.lpMu.Unlock()
-	close(a.stopCh)
-}
-
-func (a *App) MinimizeWindow() {
-	runtime.WindowMinimise(a.ctx)
-}
-
-func (a *App) CloseWindow() {
-	runtime.WindowHide(a.ctx)
-}
-
-func (a *App) QuitApp() {
-	a.lpMu.Lock()
-	if a.localProxy != nil {
-		a.localProxy.stop()
-		a.localProxy = nil
-	}
-	a.lpMu.Unlock()
-	clearSystemProxy()
-	runtime.Quit(a.ctx)
-}
-
-func (a *App) ShowWindow() {
-	runtime.WindowShow(a.ctx)
-}
-
-func (a *App) ToggleMaximize() {
-	runtime.WindowToggleMaximise(a.ctx)
-}
+// --- Proxy CRUD ---
 
 func generateID() string {
 	b := make([]byte, 8)
@@ -360,19 +308,19 @@ func parseProxy(raw string) (*ProxyEntry, error) {
 }
 
 func (a *App) AddProxy(raw string) (*ProxyEntry, error) {
-	proxy, err := parseProxy(raw)
+	p, err := parseProxy(raw)
 	if err != nil {
 		return nil, err
 	}
 
 	a.mu.Lock()
-	a.proxies[proxy.ID] = proxy
+	a.proxies[p.ID] = p
 	a.mu.Unlock()
 
-	a.addLog("added", proxy.ID, proxy.Host+":"+proxy.Port, "")
+	a.addLog("added", p.ID, p.Host+":"+p.Port, "")
 	a.saveProxies()
-	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
-	return proxy, nil
+	runtime.EventsEmit(a.ctx, "proxy-updated", p)
+	return p, nil
 }
 
 func (a *App) AddProxiesBatch(raw string) ([]*ProxyEntry, error) {
@@ -384,14 +332,14 @@ func (a *App) AddProxiesBatch(raw string) ([]*ProxyEntry, error) {
 		if line == "" {
 			continue
 		}
-		proxy, err := parseProxy(line)
+		p, err := parseProxy(line)
 		if err != nil {
 			continue
 		}
 		a.mu.Lock()
-		a.proxies[proxy.ID] = proxy
+		a.proxies[p.ID] = p
 		a.mu.Unlock()
-		added = append(added, proxy)
+		added = append(added, p)
 	}
 
 	a.addLog("batch-added", "", "", fmt.Sprintf("%d proxies", len(added)))
@@ -454,27 +402,90 @@ func (a *App) ExportProxies() string {
 	return strings.Join(lines, "\n")
 }
 
-func (a *App) buildProxyURL(proxy *ProxyEntry) string {
+// --- Groups ---
+
+func (a *App) GetGroups() []string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	seen := map[string]bool{}
+	var groups []string
+	for _, p := range a.proxies {
+		if p.Group != "" && !seen[p.Group] {
+			seen[p.Group] = true
+			groups = append(groups, p.Group)
+		}
+	}
+	sort.Strings(groups)
+	return groups
+}
+
+func (a *App) SetProxyGroup(id, group string) (*ProxyEntry, error) {
+	a.mu.Lock()
+	p, ok := a.proxies[id]
+	if !ok {
+		a.mu.Unlock()
+		return nil, fmt.Errorf("proxy not found")
+	}
+	p.Group = group
+	a.mu.Unlock()
+	a.saveProxies()
+	runtime.EventsEmit(a.ctx, "proxy-updated", p)
+	return p, nil
+}
+
+func (a *App) ConnectGroup(group string) error {
+	a.mu.RLock()
+	var ids []string
+	for id, p := range a.proxies {
+		if p.Group == group && !p.Active {
+			ids = append(ids, id)
+		}
+	}
+	a.mu.RUnlock()
+	for _, id := range ids {
+		a.ConnectProxy(id)
+	}
+	return nil
+}
+
+func (a *App) DisconnectGroup(group string) error {
+	a.mu.RLock()
+	var ids []string
+	for id, p := range a.proxies {
+		if p.Group == group && p.Active {
+			ids = append(ids, id)
+		}
+	}
+	a.mu.RUnlock()
+	for _, id := range ids {
+		a.DisconnectProxy(id)
+	}
+	return nil
+}
+
+// --- Connection ---
+
+func (a *App) buildProxyURL(p *ProxyEntry) string {
 	scheme := "http"
-	if proxy.Protocol == "socks5" {
+	if p.Protocol == "socks5" {
 		scheme = "socks5"
 	}
-	username := proxy.Username
-	if username != "" && proxy.SessionID != "" {
-		username = username + "_session-" + proxy.SessionID
+	username := p.Username
+	if username != "" && p.SessionID != "" {
+		username = username + "_session-" + p.SessionID
 	}
 	if username != "" {
 		return fmt.Sprintf("%s://%s:%s@%s:%s",
 			scheme,
 			url.QueryEscape(username),
-			url.QueryEscape(proxy.Password),
-			proxy.Host, proxy.Port)
+			url.QueryEscape(p.Password),
+			p.Host, p.Port)
 	}
-	return fmt.Sprintf("%s://%s:%s", scheme, proxy.Host, proxy.Port)
+	return fmt.Sprintf("%s://%s:%s", scheme, p.Host, p.Port)
 }
 
-func (a *App) getOrCreateClient(proxy *ProxyEntry) *http.Client {
-	clientKey := proxy.ID + ":" + proxy.SessionID
+func (a *App) getOrCreateClient(p *ProxyEntry) *http.Client {
+	clientKey := p.ID + ":" + p.SessionID
 
 	if old, ok := a.clients[clientKey]; ok {
 		return old
@@ -482,16 +493,16 @@ func (a *App) getOrCreateClient(proxy *ProxyEntry) *http.Client {
 
 	var transport *http.Transport
 
-	if proxy.Protocol == "socks5" {
-		username := proxy.Username
-		if username != "" && proxy.SessionID != "" {
-			username = username + "_session-" + proxy.SessionID
+	if p.Protocol == "socks5" {
+		username := p.Username
+		if username != "" && p.SessionID != "" {
+			username = username + "_session-" + p.SessionID
 		}
 		var auth *netproxy.Auth
 		if username != "" {
-			auth = &netproxy.Auth{User: username, Password: proxy.Password}
+			auth = &netproxy.Auth{User: username, Password: p.Password}
 		}
-		dialer, err := netproxy.SOCKS5("tcp", net.JoinHostPort(proxy.Host, proxy.Port), auth, netproxy.Direct)
+		dialer, err := netproxy.SOCKS5("tcp", net.JoinHostPort(p.Host, p.Port), auth, netproxy.Direct)
 		if err != nil {
 			dialer = netproxy.Direct
 		}
@@ -504,7 +515,7 @@ func (a *App) getOrCreateClient(proxy *ProxyEntry) *http.Client {
 			IdleConnTimeout:     90 * time.Second,
 		}
 	} else {
-		proxyURL, _ := url.Parse(a.buildProxyURL(proxy))
+		proxyURL, _ := url.Parse(a.buildProxyURL(p))
 		transport = &http.Transport{
 			Proxy: http.ProxyURL(proxyURL),
 			DialContext: (&net.Dialer{
@@ -534,20 +545,32 @@ func (a *App) closeClient(key string) {
 	}
 }
 
-func (a *App) setLocalProxy(proxy *ProxyEntry, id string) {
+func (a *App) toUpstreamConfig(p *ProxyEntry) proxy.UpstreamConfig {
+	return proxy.UpstreamConfig{
+		ID:        p.ID,
+		Host:      p.Host,
+		Port:      p.Port,
+		Username:  p.Username,
+		Password:  p.Password,
+		SessionID: p.SessionID,
+		Protocol:  p.Protocol,
+	}
+}
+
+func (a *App) setLocalProxy(p *ProxyEntry, id string) {
 	a.lpMu.Lock()
 	defer a.lpMu.Unlock()
 
 	if a.localProxy != nil {
-		a.localProxy.stop()
-		clearSystemProxy()
+		a.localProxy.Stop()
+		proxy.ClearSystemProxy()
 	}
 
-	lp, err := newLocalProxy(proxy)
+	ls, err := proxy.NewLocalServer(a.toUpstreamConfig(p))
 	if err == nil {
-		a.localProxy = lp
-		setSystemProxy(lp.port)
-		a.addLog("system-proxy", id, proxy.Host+":"+proxy.Port, fmt.Sprintf("local proxy on port %d", lp.port))
+		a.localProxy = ls
+		proxy.SetSystemProxy(ls.Port())
+		a.addLog("system-proxy", id, p.Host+":"+p.Port, fmt.Sprintf("local proxy on port %d", ls.Port()))
 	}
 }
 
@@ -555,15 +578,14 @@ func (a *App) clearLocalProxyIf(id string) {
 	a.lpMu.Lock()
 	defer a.lpMu.Unlock()
 
-	if a.localProxy != nil && a.localProxy.upstream.ID == id {
-		a.localProxy.stop()
+	if a.localProxy != nil && a.localProxy.UpstreamID() == id {
+		a.localProxy.Stop()
 		a.localProxy = nil
-		clearSystemProxy()
+		proxy.ClearSystemProxy()
 	}
 }
 
 func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
-	// Disconnect any currently active proxy first
 	a.mu.RLock()
 	var activeID string
 	for pid, p := range a.proxies {
@@ -578,16 +600,16 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 	}
 
 	a.mu.Lock()
-	proxy, ok := a.proxies[id]
+	p, ok := a.proxies[id]
 	if !ok {
 		a.mu.Unlock()
 		return nil, fmt.Errorf("proxy not found")
 	}
-	proxy.Status = StatusConnecting
-	client := a.getOrCreateClient(proxy)
+	p.Status = StatusConnecting
+	client := a.getOrCreateClient(p)
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
+	runtime.EventsEmit(a.ctx, "proxy-updated", p)
 
 	start := time.Now()
 	resp, err := client.Get("https://api.ipify.org?format=json")
@@ -595,15 +617,15 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 
 	if err != nil {
 		a.mu.Lock()
-		proxy.Status = StatusError
-		proxy.Latency = 0
-		proxy.CurrentIP = ""
-		proxy.Location = nil
-		proxy.LastCheck = time.Now().Format(time.RFC3339)
+		p.Status = StatusError
+		p.Latency = 0
+		p.CurrentIP = ""
+		p.Location = nil
+		p.LastCheck = time.Now().Format(time.RFC3339)
 		a.mu.Unlock()
-		a.addLog("connect-failed", id, proxy.Host+":"+proxy.Port, err.Error())
-		runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
-		return proxy, fmt.Errorf("connection failed: %v", err)
+		a.addLog("connect-failed", id, p.Host+":"+p.Port, err.Error())
+		runtime.EventsEmit(a.ctx, "proxy-updated", p)
+		return p, fmt.Errorf("connection failed: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -616,65 +638,65 @@ func (a *App) ConnectProxy(id string) (*ProxyEntry, error) {
 	geo := a.fetchGeoInfo(client, ipResult.IP)
 
 	a.mu.Lock()
-	proxy.Status = StatusConnected
-	proxy.CurrentIP = ipResult.IP
-	proxy.Latency = latency
-	proxy.Location = geo
-	proxy.Active = true
-	proxy.LastCheck = time.Now().Format(time.RFC3339)
-	proxy.ConnectedAt = time.Now().Format(time.RFC3339)
+	p.Status = StatusConnected
+	p.CurrentIP = ipResult.IP
+	p.Latency = latency
+	p.Location = geo
+	p.Active = true
+	p.LastCheck = time.Now().Format(time.RFC3339)
+	p.ConnectedAt = time.Now().Format(time.RFC3339)
 	a.mu.Unlock()
 
-	a.addLog("connected", id, proxy.Host+":"+proxy.Port, fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
-	a.setLocalProxy(proxy, id)
+	a.addLog("connected", id, p.Host+":"+p.Port, fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
+	a.setLocalProxy(p, id)
 
-	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
-	return proxy, nil
+	runtime.EventsEmit(a.ctx, "proxy-updated", p)
+	return p, nil
 }
 
 func (a *App) DisconnectProxy(id string) (*ProxyEntry, error) {
 	a.mu.Lock()
-	proxy, ok := a.proxies[id]
+	p, ok := a.proxies[id]
 	if !ok {
 		a.mu.Unlock()
 		return nil, fmt.Errorf("proxy not found")
 	}
-	if proxy.ConnectedAt != "" {
-		if t, err := time.Parse(time.RFC3339, proxy.ConnectedAt); err == nil {
-			proxy.TotalUptime += int64(time.Since(t).Seconds())
+	if p.ConnectedAt != "" {
+		if t, err := time.Parse(time.RFC3339, p.ConnectedAt); err == nil {
+			p.TotalUptime += int64(time.Since(t).Seconds())
 		}
 	}
-	proxy.Status = StatusOffline
-	proxy.Active = false
-	proxy.CurrentIP = ""
-	proxy.Location = nil
-	proxy.Latency = 0
-	proxy.ConnectedAt = ""
-	a.closeClient(id + ":" + proxy.SessionID)
+	p.Status = StatusOffline
+	p.Active = false
+	p.CurrentIP = ""
+	p.Location = nil
+	p.Latency = 0
+	p.ConnectedAt = ""
+	a.closeClient(id + ":" + p.SessionID)
 	a.mu.Unlock()
 
 	a.clearLocalProxyIf(id)
 
-	a.addLog("disconnected", id, proxy.Host+":"+proxy.Port, "")
-	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
-	return proxy, nil
+	a.addLog("disconnected", id, p.Host+":"+p.Port, "")
+	runtime.EventsEmit(a.ctx, "proxy-updated", p)
+	return p, nil
 }
 
 func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 	a.mu.Lock()
-	proxy, ok := a.proxies[id]
+	p, ok := a.proxies[id]
 	if !ok {
 		a.mu.Unlock()
 		return nil, fmt.Errorf("proxy not found")
 	}
-	oldKey := id + ":" + proxy.SessionID
+	oldKey := id + ":" + p.SessionID
 	a.closeClient(oldKey)
-	proxy.SessionID = generateSessionID()
-	proxy.Status = StatusConnecting
-	client := a.getOrCreateClient(proxy)
+	p.SessionID = generateSessionID()
+	p.Status = StatusConnecting
+	client := a.getOrCreateClient(p)
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
+	runtime.EventsEmit(a.ctx, "proxy-updated", p)
 
 	start := time.Now()
 	resp, err := client.Get("https://api.ipify.org?format=json")
@@ -682,11 +704,11 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 
 	if err != nil {
 		a.mu.Lock()
-		proxy.Status = StatusError
+		p.Status = StatusError
 		a.mu.Unlock()
-		a.addLog("rotate-failed", id, proxy.Host+":"+proxy.Port, err.Error())
-		runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
-		return proxy, fmt.Errorf("rotation failed: %v", err)
+		a.addLog("rotate-failed", id, p.Host+":"+p.Port, err.Error())
+		runtime.EventsEmit(a.ctx, "proxy-updated", p)
+		return p, fmt.Errorf("rotation failed: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -699,19 +721,19 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 	geo := a.fetchGeoInfo(client, ipResult.IP)
 
 	a.mu.Lock()
-	proxy.Status = StatusConnected
-	proxy.CurrentIP = ipResult.IP
-	proxy.Latency = latency
-	proxy.Location = geo
-	proxy.Active = true
-	proxy.LastCheck = time.Now().Format(time.RFC3339)
+	p.Status = StatusConnected
+	p.CurrentIP = ipResult.IP
+	p.Latency = latency
+	p.Location = geo
+	p.Active = true
+	p.LastCheck = time.Now().Format(time.RFC3339)
 	a.mu.Unlock()
 
-	a.addLog("rotated", id, proxy.Host+":"+proxy.Port, fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
-	a.setLocalProxy(proxy, id)
+	a.addLog("rotated", id, p.Host+":"+p.Port, fmt.Sprintf("IP: %s, %dms", ipResult.IP, latency))
+	a.setLocalProxy(p, id)
 
-	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
-	return proxy, nil
+	runtime.EventsEmit(a.ctx, "proxy-updated", p)
+	return p, nil
 }
 
 func (a *App) RestartProxy(id string) (*ProxyEntry, error) {
@@ -719,15 +741,17 @@ func (a *App) RestartProxy(id string) (*ProxyEntry, error) {
 	return a.ConnectProxy(id)
 }
 
+// --- Health & rotation ---
+
 func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
 	a.mu.RLock()
-	proxy, ok := a.proxies[id]
-	if !ok || !proxy.Active {
+	p, ok := a.proxies[id]
+	if !ok || !p.Active {
 		a.mu.RUnlock()
 		return nil, fmt.Errorf("proxy not found or inactive")
 	}
-	client := a.getOrCreateClient(proxy)
-	prevStatus := proxy.Status
+	client := a.getOrCreateClient(p)
+	prevStatus := p.Status
 	a.mu.RUnlock()
 
 	start := time.Now()
@@ -736,18 +760,18 @@ func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
 
 	if err != nil {
 		a.mu.Lock()
-		proxy.Status = StatusError
-		proxy.LastCheck = time.Now().Format(time.RFC3339)
+		p.Status = StatusError
+		p.LastCheck = time.Now().Format(time.RFC3339)
 		a.mu.Unlock()
 		if prevStatus == StatusConnected {
-			a.addLog("dropped", id, proxy.Host+":"+proxy.Port, err.Error())
+			a.addLog("dropped", id, p.Host+":"+p.Port, err.Error())
 			runtime.EventsEmit(a.ctx, "proxy-dropped", map[string]string{
 				"id":   id,
-				"host": proxy.Host + ":" + proxy.Port,
+				"host": p.Host + ":" + p.Port,
 			})
 		}
-		runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
-		return proxy, nil
+		runtime.EventsEmit(a.ctx, "proxy-updated", p)
+		return p, nil
 	}
 	defer resp.Body.Close()
 
@@ -758,17 +782,17 @@ func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
 	json.Unmarshal(body, &ipResult)
 
 	a.mu.Lock()
-	proxy.Latency = latency
-	proxy.LastCheck = time.Now().Format(time.RFC3339)
-	if ipResult.IP != "" && ipResult.IP != proxy.CurrentIP {
-		proxy.CurrentIP = ipResult.IP
+	p.Latency = latency
+	p.LastCheck = time.Now().Format(time.RFC3339)
+	if ipResult.IP != "" && ipResult.IP != p.CurrentIP {
+		p.CurrentIP = ipResult.IP
 		geo := a.fetchGeoInfo(client, ipResult.IP)
-		proxy.Location = geo
+		p.Location = geo
 	}
 	a.mu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
-	return proxy, nil
+	runtime.EventsEmit(a.ctx, "proxy-updated", p)
+	return p, nil
 }
 
 func (a *App) fetchGeoInfo(client *http.Client, ip string) *GeoInfo {
@@ -832,7 +856,7 @@ func (a *App) healthCheckLoop() {
 		case <-a.stopCh:
 			return
 		case <-ticker.C:
-			cfg := a.loadConfig()
+			cfg := config.Load()
 			interval := time.Duration(cfg.HealthCheckInterval) * time.Second
 			if time.Since(lastCheck) < interval {
 				continue
@@ -874,7 +898,7 @@ func (a *App) autoRotateLoop() {
 		case <-a.stopCh:
 			return
 		case <-ticker.C:
-			cfg := a.loadConfig()
+			cfg := config.Load()
 			if cfg.AutoRotateInterval <= 0 {
 				lastRotation = time.Now()
 				continue
@@ -909,14 +933,16 @@ func (a *App) autoRotateLoop() {
 	}
 }
 
+// --- Benchmark ---
+
 func (a *App) BenchmarkProxy(id string) (map[string]interface{}, error) {
 	a.mu.RLock()
-	proxy, ok := a.proxies[id]
+	p, ok := a.proxies[id]
 	if !ok {
 		a.mu.RUnlock()
 		return nil, fmt.Errorf("proxy not found")
 	}
-	client := a.getOrCreateClient(proxy)
+	client := a.getOrCreateClient(p)
 	a.mu.RUnlock()
 
 	results := map[string]interface{}{}
@@ -945,71 +971,11 @@ func (a *App) BenchmarkProxy(id string) (map[string]interface{}, error) {
 		}
 	}
 
-	a.addLog("benchmark", id, proxy.Host+":"+proxy.Port, fmt.Sprintf("connect: %dms", connectMs))
+	a.addLog("benchmark", id, p.Host+":"+p.Port, fmt.Sprintf("connect: %dms", connectMs))
 	return results, nil
 }
 
-func (a *App) GetGroups() []string {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	seen := map[string]bool{}
-	var groups []string
-	for _, p := range a.proxies {
-		if p.Group != "" && !seen[p.Group] {
-			seen[p.Group] = true
-			groups = append(groups, p.Group)
-		}
-	}
-	sort.Strings(groups)
-	return groups
-}
-
-func (a *App) SetProxyGroup(id, group string) (*ProxyEntry, error) {
-	a.mu.Lock()
-	proxy, ok := a.proxies[id]
-	if !ok {
-		a.mu.Unlock()
-		return nil, fmt.Errorf("proxy not found")
-	}
-	proxy.Group = group
-	a.mu.Unlock()
-	a.saveProxies()
-	runtime.EventsEmit(a.ctx, "proxy-updated", proxy)
-	return proxy, nil
-}
-
-func (a *App) ConnectGroup(group string) error {
-	a.mu.RLock()
-	var ids []string
-	for id, p := range a.proxies {
-		if p.Group == group && !p.Active {
-			ids = append(ids, id)
-		}
-	}
-	a.mu.RUnlock()
-
-	for _, id := range ids {
-		a.ConnectProxy(id)
-	}
-	return nil
-}
-
-func (a *App) DisconnectGroup(group string) error {
-	a.mu.RLock()
-	var ids []string
-	for id, p := range a.proxies {
-		if p.Group == group && p.Active {
-			ids = append(ids, id)
-		}
-	}
-	a.mu.RUnlock()
-
-	for _, id := range ids {
-		a.DisconnectProxy(id)
-	}
-	return nil
-}
-
+// --- Public IP ---
 
 func (a *App) GetMyIP() (string, error) {
 	resp, err := http.Get("https://api.ipify.org?format=text")

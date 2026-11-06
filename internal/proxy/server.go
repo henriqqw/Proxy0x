@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import (
 	"bufio"
@@ -7,21 +7,25 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os/exec"
 	"sync"
-	"syscall"
 	"time"
-	"unsafe"
 
 	netproxy "golang.org/x/net/proxy"
 )
 
-var wininet = syscall.NewLazyDLL("wininet.dll")
-var internetSetOption = wininet.NewProc("InternetSetOptionW")
+type UpstreamConfig struct {
+	ID        string
+	Host      string
+	Port      string
+	Username  string
+	Password  string
+	SessionID string
+	Protocol  string
+}
 
-type LocalProxy struct {
+type LocalServer struct {
 	listener net.Listener
-	upstream *ProxyEntry
+	upstream UpstreamConfig
 	port     int
 	stopCh   chan struct{}
 	wg       sync.WaitGroup
@@ -30,44 +34,85 @@ type LocalProxy struct {
 	conns    []net.Conn
 }
 
-func newLocalProxy(upstream *ProxyEntry) (*LocalProxy, error) {
+func NewLocalServer(upstream UpstreamConfig) (*LocalServer, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
 	}
-	lp := &LocalProxy{
+	ls := &LocalServer{
 		listener: listener,
 		upstream: upstream,
 		port:     listener.Addr().(*net.TCPAddr).Port,
 		stopCh:   make(chan struct{}),
 	}
-	go lp.serve()
-	return lp, nil
+	go ls.serve()
+	return ls, nil
 }
 
-func (lp *LocalProxy) serve() {
+func (ls *LocalServer) Port() int {
+	return ls.port
+}
+
+func (ls *LocalServer) UpstreamID() string {
+	ls.mu.RLock()
+	defer ls.mu.RUnlock()
+	return ls.upstream.ID
+}
+
+func (ls *LocalServer) Stop() {
+	close(ls.stopCh)
+	ls.listener.Close()
+
+	ls.connsMu.Lock()
+	for _, c := range ls.conns {
+		c.Close()
+	}
+	ls.conns = nil
+	ls.connsMu.Unlock()
+
+	ls.wg.Wait()
+}
+
+func (ls *LocalServer) serve() {
 	for {
-		conn, err := lp.listener.Accept()
+		conn, err := ls.listener.Accept()
 		if err != nil {
 			select {
-			case <-lp.stopCh:
+			case <-ls.stopCh:
 				return
 			default:
 				continue
 			}
 		}
-		lp.wg.Add(1)
+		ls.wg.Add(1)
 		go func() {
-			defer lp.wg.Done()
-			lp.handleConn(conn)
+			defer ls.wg.Done()
+			ls.handleConn(conn)
 		}()
 	}
 }
 
-func (lp *LocalProxy) proxyAuth() string {
-	lp.mu.RLock()
-	u := lp.upstream
-	lp.mu.RUnlock()
+func (ls *LocalServer) trackConn(c net.Conn) {
+	ls.connsMu.Lock()
+	ls.conns = append(ls.conns, c)
+	ls.connsMu.Unlock()
+}
+
+func (ls *LocalServer) untrackConn(c net.Conn) {
+	ls.connsMu.Lock()
+	for i, conn := range ls.conns {
+		if conn == c {
+			ls.conns = append(ls.conns[:i], ls.conns[i+1:]...)
+			break
+		}
+	}
+	ls.connsMu.Unlock()
+}
+
+func (ls *LocalServer) proxyAuth() string {
+	ls.mu.RLock()
+	u := ls.upstream
+	ls.mu.RUnlock()
 
 	username := u.Username
 	if username != "" && u.SessionID != "" {
@@ -79,16 +124,16 @@ func (lp *LocalProxy) proxyAuth() string {
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+u.Password))
 }
 
-func (lp *LocalProxy) upstreamAddr() string {
-	lp.mu.RLock()
-	defer lp.mu.RUnlock()
-	return net.JoinHostPort(lp.upstream.Host, lp.upstream.Port)
+func (ls *LocalServer) upstreamAddr() string {
+	ls.mu.RLock()
+	defer ls.mu.RUnlock()
+	return net.JoinHostPort(ls.upstream.Host, ls.upstream.Port)
 }
 
-func (lp *LocalProxy) dialViaSocks5(target string) (net.Conn, error) {
-	lp.mu.RLock()
-	u := lp.upstream
-	lp.mu.RUnlock()
+func (ls *LocalServer) dialViaSocks5(target string) (net.Conn, error) {
+	ls.mu.RLock()
+	u := ls.upstream
+	ls.mu.RUnlock()
 
 	username := u.Username
 	if username != "" && u.SessionID != "" {
@@ -105,27 +150,10 @@ func (lp *LocalProxy) dialViaSocks5(target string) (net.Conn, error) {
 	return dialer.Dial("tcp", target)
 }
 
-func (lp *LocalProxy) trackConn(c net.Conn) {
-	lp.connsMu.Lock()
-	lp.conns = append(lp.conns, c)
-	lp.connsMu.Unlock()
-}
-
-func (lp *LocalProxy) untrackConn(c net.Conn) {
-	lp.connsMu.Lock()
-	for i, conn := range lp.conns {
-		if conn == c {
-			lp.conns = append(lp.conns[:i], lp.conns[i+1:]...)
-			break
-		}
-	}
-	lp.connsMu.Unlock()
-}
-
-func (lp *LocalProxy) handleConn(clientConn net.Conn) {
-	lp.trackConn(clientConn)
+func (ls *LocalServer) handleConn(clientConn net.Conn) {
+	ls.trackConn(clientConn)
 	defer func() {
-		lp.untrackConn(clientConn)
+		ls.untrackConn(clientConn)
 		clientConn.Close()
 	}()
 	br := bufio.NewReader(clientConn)
@@ -134,40 +162,40 @@ func (lp *LocalProxy) handleConn(clientConn net.Conn) {
 		return
 	}
 	if req.Method == "CONNECT" {
-		lp.handleConnect(clientConn, req)
+		ls.handleConnect(clientConn, req)
 	} else {
-		lp.handleHTTP(clientConn, req)
+		ls.handleHTTP(clientConn, req)
 	}
 }
 
-func (lp *LocalProxy) handleConnect(clientConn net.Conn, req *http.Request) {
-	lp.mu.RLock()
-	proto := lp.upstream.Protocol
-	lp.mu.RUnlock()
+func (ls *LocalServer) handleConnect(clientConn net.Conn, req *http.Request) {
+	ls.mu.RLock()
+	proto := ls.upstream.Protocol
+	ls.mu.RUnlock()
 
 	var upConn net.Conn
 	var err error
 
 	if proto == "socks5" {
-		upConn, err = lp.dialViaSocks5(req.Host)
+		upConn, err = ls.dialViaSocks5(req.Host)
 		if err != nil {
 			fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
 			return
 		}
-		lp.trackConn(upConn)
-		defer func() { lp.untrackConn(upConn); upConn.Close() }()
+		ls.trackConn(upConn)
+		defer func() { ls.untrackConn(upConn); upConn.Close() }()
 		clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 	} else {
-		upConn, err = net.DialTimeout("tcp", lp.upstreamAddr(), 15*time.Second)
+		upConn, err = net.DialTimeout("tcp", ls.upstreamAddr(), 15*time.Second)
 		if err != nil {
 			fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
 			return
 		}
-		lp.trackConn(upConn)
-		defer func() { lp.untrackConn(upConn); upConn.Close() }()
+		ls.trackConn(upConn)
+		defer func() { ls.untrackConn(upConn); upConn.Close() }()
 
 		connectReq := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n", req.Host, req.Host)
-		if auth := lp.proxyAuth(); auth != "" {
+		if auth := ls.proxyAuth(); auth != "" {
 			connectReq += "Proxy-Authorization: " + auth + "\r\n"
 		}
 		connectReq += "\r\n"
@@ -219,10 +247,10 @@ func copyWithDeadline(dst, src net.Conn, idle time.Duration) {
 	}
 }
 
-func (lp *LocalProxy) handleHTTP(clientConn net.Conn, req *http.Request) {
-	lp.mu.RLock()
-	proto := lp.upstream.Protocol
-	lp.mu.RUnlock()
+func (ls *LocalServer) handleHTTP(clientConn net.Conn, req *http.Request) {
+	ls.mu.RLock()
+	proto := ls.upstream.Protocol
+	ls.mu.RUnlock()
 
 	var upConn net.Conn
 	var err error
@@ -232,7 +260,7 @@ func (lp *LocalProxy) handleHTTP(clientConn net.Conn, req *http.Request) {
 		if _, _, splitErr := net.SplitHostPort(host); splitErr != nil {
 			host = net.JoinHostPort(host, "80")
 		}
-		upConn, err = lp.dialViaSocks5(host)
+		upConn, err = ls.dialViaSocks5(host)
 		if err != nil {
 			fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
 			return
@@ -241,14 +269,14 @@ func (lp *LocalProxy) handleHTTP(clientConn net.Conn, req *http.Request) {
 		upConn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 		req.Write(upConn)
 	} else {
-		upConn, err = net.DialTimeout("tcp", lp.upstreamAddr(), 15*time.Second)
+		upConn, err = net.DialTimeout("tcp", ls.upstreamAddr(), 15*time.Second)
 		if err != nil {
 			fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
 			return
 		}
 		defer upConn.Close()
 
-		if auth := lp.proxyAuth(); auth != "" {
+		if auth := ls.proxyAuth(); auth != "" {
 			req.Header.Set("Proxy-Authorization", auth)
 		}
 		if !req.URL.IsAbs() {
@@ -262,47 +290,4 @@ func (lp *LocalProxy) handleHTTP(clientConn net.Conn, req *http.Request) {
 
 	upConn.SetReadDeadline(time.Now().Add(5 * time.Minute))
 	io.Copy(clientConn, upConn)
-}
-
-func (lp *LocalProxy) stop() {
-	close(lp.stopCh)
-	lp.listener.Close()
-
-	lp.connsMu.Lock()
-	for _, c := range lp.conns {
-		c.Close()
-	}
-	lp.conns = nil
-	lp.connsMu.Unlock()
-
-	lp.wg.Wait()
-}
-
-func runHidden(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000}
-	return cmd.Run()
-}
-
-const regPath = `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`
-
-func setSystemProxy(port int) error {
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	bypass := "localhost;127.*;10.*;192.168.*;<local>"
-
-	runHidden("reg", "add", regPath, "/v", "ProxyServer", "/t", "REG_SZ", "/d", addr, "/f")
-	runHidden("reg", "add", regPath, "/v", "ProxyOverride", "/t", "REG_SZ", "/d", bypass, "/f")
-	runHidden("reg", "add", regPath, "/v", "ProxyEnable", "/t", "REG_DWORD", "/d", "1", "/f")
-	refreshProxy()
-	return nil
-}
-
-func clearSystemProxy() {
-	runHidden("reg", "add", regPath, "/v", "ProxyEnable", "/t", "REG_DWORD", "/d", "0", "/f")
-	refreshProxy()
-}
-
-func refreshProxy() {
-	internetSetOption.Call(0, 39, uintptr(unsafe.Pointer(nil)), 0)
-	internetSetOption.Call(0, 37, uintptr(unsafe.Pointer(nil)), 0)
 }

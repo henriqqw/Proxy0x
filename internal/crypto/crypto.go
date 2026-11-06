@@ -1,4 +1,4 @@
-package main
+package crypto
 
 import (
 	"crypto/aes"
@@ -11,14 +11,22 @@ import (
 	"path/filepath"
 )
 
-func (a *App) keyFile() string {
-	return filepath.Join(a.dataDir(), ".key")
+type Store struct {
+	dataDir string
 }
 
-func (a *App) getOrCreateKey() ([]byte, error) {
-	os.MkdirAll(a.dataDir(), 0o700)
+func NewStore(dataDir string) *Store {
+	return &Store{dataDir: dataDir}
+}
 
-	path := a.keyFile()
+func (s *Store) keyFile() string {
+	return filepath.Join(s.dataDir, ".key")
+}
+
+func (s *Store) getOrCreateKey() ([]byte, error) {
+	os.MkdirAll(s.dataDir, 0o700)
+
+	path := s.keyFile()
 	key, err := os.ReadFile(path)
 	if err == nil && len(key) == 32 {
 		return key, nil
@@ -34,11 +42,11 @@ func (a *App) getOrCreateKey() ([]byte, error) {
 	return key, nil
 }
 
-func (a *App) encrypt(plaintext string) (string, error) {
+func (s *Store) Encrypt(plaintext string) (string, error) {
 	if plaintext == "" {
 		return "", nil
 	}
-	key, err := a.getOrCreateKey()
+	key, err := s.getOrCreateKey()
 	if err != nil {
 		return plaintext, err
 	}
@@ -62,7 +70,7 @@ func (a *App) encrypt(plaintext string) (string, error) {
 	return "enc:" + base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-func (a *App) decrypt(encoded string) (string, error) {
+func (s *Store) Decrypt(encoded string) (string, error) {
 	if encoded == "" {
 		return "", nil
 	}
@@ -70,7 +78,7 @@ func (a *App) decrypt(encoded string) (string, error) {
 		return encoded, nil
 	}
 
-	key, err := a.getOrCreateKey()
+	key, err := s.getOrCreateKey()
 	if err != nil {
 		return "", err
 	}
