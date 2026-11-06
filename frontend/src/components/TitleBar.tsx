@@ -7,14 +7,11 @@ export default function TitleBar() {
       className="flex items-center justify-between h-10 px-3 bg-surface-1/80 border-b border-border-default shrink-0 backdrop-blur-sm"
       style={{ '--wails-draggable': 'drag' } as React.CSSProperties}
     >
-      <div className="flex items-center gap-2.5">
-        <svg className="w-4 h-4 text-text-secondary" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="16" cy="16" r="7" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-          <circle cx="16" cy="16" r="2.5" fill="currentColor"/>
-          <path d="M16 9V6M16 26v-3M23 16h3M6 16h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-        </svg>
-        <span className="text-[11px] font-medium text-text-tertiary tracking-widest uppercase">
-          Proxy<span className="text-text-secondary">UI</span>
+      <div className="flex items-center gap-2">
+        <img src="/icon-64.png" alt="" className="w-5 h-5" draggable={false} />
+        <span className="text-[11px] font-semibold tracking-wide">
+          <span className="text-text-secondary">Proxy</span>
+          <span className="text-accent">0x</span>
         </span>
       </div>
       <div className="flex items-center gap-0.5 no-drag">

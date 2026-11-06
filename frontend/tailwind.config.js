@@ -24,18 +24,20 @@ export default {
           tertiary: '#6b6b6b',
         },
         accent: {
-          DEFAULT: '#ffffff',
-          muted: '#aaaaaa',
+          DEFAULT: '#68E045',
+          dark: '#43B52F',
+          muted: '#68E04540',
+          subtle: '#68E04520',
         },
         status: {
-          online: '#4ac083',
+          online: '#68E045',
           offline: '#6b6b6b',
           connecting: '#d4a024',
           error: '#cc4444',
         },
       },
       fontFamily: {
-        sans: ['-apple-system', 'BlinkMacSystemFont', 'SF Pro Display', 'Segoe UI', 'sans-serif'],
+        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'SF Pro Display', 'Segoe UI', 'sans-serif'],
         mono: ['SF Mono', 'Cascadia Code', 'Consolas', 'monospace'],
       },
       borderRadius: {

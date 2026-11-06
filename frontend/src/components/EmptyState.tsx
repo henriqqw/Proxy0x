@@ -1,5 +1,4 @@
 import { motion } from 'framer-motion'
-import { Unplug } from 'lucide-react'
 
 export default function EmptyState() {
   return (
@@ -7,13 +6,22 @@ export default function EmptyState() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="flex flex-col items-center justify-center py-16 gap-3"
+      className="flex flex-col items-center justify-center py-16 gap-4"
     >
-      <Unplug size={28} className="text-text-tertiary" strokeWidth={1.5} />
-      <p className="text-xs text-text-tertiary">No proxies added yet</p>
-      <p className="text-[10px] text-text-tertiary/60">
-        Add a proxy above to get started
-      </p>
+      <motion.img
+        src="/icon-64.png"
+        alt="Proxy0x"
+        className="w-14 h-14 opacity-30"
+        draggable={false}
+        animate={{ opacity: [0.2, 0.35, 0.2] }}
+        transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      <div className="text-center space-y-1">
+        <p className="text-xs text-text-tertiary">Nenhuma proxy adicionada</p>
+        <p className="text-[10px] text-text-tertiary/50">
+          Adicione uma proxy acima para começar
+        </p>
+      </div>
     </motion.div>
   )
 }

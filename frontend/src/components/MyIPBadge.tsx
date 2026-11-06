@@ -23,7 +23,7 @@ export default function MyIPBadge({ ip, onRefresh }: Props) {
       className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-1 border border-border-default"
     >
       <div className="flex items-center gap-2">
-        <Globe size={12} className="text-text-tertiary" />
+        <Globe size={12} className="text-accent/50" />
         <span className="text-[10px] text-text-tertiary uppercase tracking-wider">Your IP</span>
       </div>
       <div className="flex items-center gap-2">

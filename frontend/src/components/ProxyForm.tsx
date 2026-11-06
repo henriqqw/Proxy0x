@@ -80,12 +80,12 @@ export default function ProxyForm({ onAdded }: Props) {
             placeholder="host:port:user:pass"
             className="w-full h-8 px-3 pr-8 text-xs font-mono bg-surface-2 border border-border-default rounded-lg
                        text-text-primary placeholder:text-text-tertiary
-                       focus:outline-none focus:border-border-strong focus:bg-surface-3 transition-all"
+                       focus:outline-none focus:border-accent/40 focus:bg-surface-3 transition-all"
           />
           <button
             onClick={handlePaste}
             className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded
-                       text-text-tertiary hover:text-text-secondary hover:bg-surface-4 transition-colors"
+                       text-text-tertiary hover:text-accent hover:bg-accent/10 transition-colors"
             title="Paste"
           >
             <ClipboardPaste size={12} />
@@ -95,8 +95,8 @@ export default function ProxyForm({ onAdded }: Props) {
           onClick={handleAdd}
           disabled={loading || !input.trim()}
           className="h-8 px-3 flex items-center gap-1.5 text-xs font-medium
-                     bg-surface-3 border border-border-default rounded-lg
-                     text-text-secondary hover:text-text-primary hover:bg-surface-4
+                     bg-accent/15 border border-accent/30 rounded-lg
+                     text-accent hover:bg-accent/25
                      disabled:opacity-30 disabled:cursor-not-allowed transition-all"
         >
           <Plus size={12} />
@@ -128,7 +128,7 @@ export default function ProxyForm({ onAdded }: Props) {
               rows={4}
               className="w-full px-3 py-2 text-xs font-mono bg-surface-2 border border-border-default rounded-lg
                          text-text-primary placeholder:text-text-tertiary resize-none
-                         focus:outline-none focus:border-border-strong focus:bg-surface-3 transition-all"
+                         focus:outline-none focus:border-accent/40 focus:bg-surface-3 transition-all"
             />
             <button
               onClick={handleBatchAdd}

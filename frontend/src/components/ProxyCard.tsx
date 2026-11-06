@@ -51,7 +51,7 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
       transition={{ duration: 0.2 }}
       className={`rounded-lg border transition-all ${
         isActive
-          ? 'bg-surface-2 border-border-strong shadow-[0_1px_8px_rgba(0,0,0,0.4)]'
+          ? 'bg-surface-2 border-accent/20 shadow-[0_1px_12px_rgba(104,224,69,0.06)]'
           : 'bg-surface-1 border-border-default hover:border-border-strong'
       }`}
     >
@@ -92,7 +92,7 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
               <Copy
                 size={10}
                 className={`transition-colors ${
-                  copied ? 'text-status-online' : 'text-text-tertiary opacity-0 group-hover:opacity-100'
+                  copied ? 'text-accent' : 'text-text-tertiary opacity-0 group-hover:opacity-100'
                 }`}
               />
             </button>
@@ -211,7 +211,7 @@ function ControlBtn({
                   border transition-all
                   disabled:opacity-20 disabled:cursor-not-allowed
                   ${accent
-                    ? 'bg-surface-4 border-border-strong text-text-primary hover:bg-surface-5'
+                    ? 'bg-accent/15 border-accent/30 text-accent hover:bg-accent/25'
                     : 'bg-surface-3 border-border-default text-text-secondary hover:text-text-primary hover:bg-surface-4'
                   }`}
     >
