@@ -303,6 +303,26 @@ func TestGetMyIPTimesOut(t *testing.T) {
 	})
 }
 
+func TestRotationKeepsLocalServerAndRegistry(t *testing.T) {
+	a, sys := newTestApp(t)
+	_, host, port := startFakeUpstream(t)
+	p := addTestProxy(t, a, host, port)
+	if _, err := a.ConnectProxy(p.ID); err != nil {
+		t.Fatal(err)
+	}
+	server := a.localProxy
+
+	if _, err := a.RotateProxy(p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if a.localProxy != server {
+		t.Fatal("rotation restarted the local server (drops every browser connection)")
+	}
+	if sys.sets != 1 {
+		t.Fatalf("system proxy rewritten %d times, want once at connect", sys.sets)
+	}
+}
+
 func TestFailedRotationKeepsPreviousSession(t *testing.T) {
 	a, _ := newTestApp(t)
 	up, host, port := startFakeUpstream(t)

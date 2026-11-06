@@ -693,6 +693,23 @@ func (a *App) setLocalProxy(p *ProxyEntry, id string) error {
 	return nil
 }
 
+// updateLocalProxy points the running local server at p's current session
+// without restarting it, so the port, the registry and open connections survive.
+func (a *App) updateLocalProxy(p *ProxyEntry, id string) error {
+	a.mu.RLock()
+	cfg := a.toUpstreamConfig(p)
+	a.mu.RUnlock()
+
+	a.lpMu.Lock()
+	if a.localProxy != nil && a.localProxy.UpstreamID() == id {
+		a.localProxy.UpdateUpstream(cfg)
+		a.lpMu.Unlock()
+		return nil
+	}
+	a.lpMu.Unlock()
+	return a.setLocalProxy(p, id)
+}
+
 // verifyExitIP fetches the exit IP through client. It succeeds only with
 // HTTP 200 and a body whose "ip" field parses as an IP address.
 func verifyExitIP(client *http.Client) (string, int64, error) {
@@ -875,7 +892,7 @@ func (a *App) RotateProxy(id string) (*ProxyEntry, error) {
 	p.LastCheck = time.Now().Format(time.RFC3339)
 	a.mu.Unlock()
 
-	if err := a.setLocalProxy(p, id); err != nil {
+	if err := a.updateLocalProxy(p, id); err != nil {
 		return a.failLocalProxy(p, id, "rotate", err)
 	}
 

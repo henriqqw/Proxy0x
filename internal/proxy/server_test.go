@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net"
@@ -122,6 +123,86 @@ func TestPlainHTTPClosesClientAfterResponse(t *testing.T) {
 				t.Fatalf("response should announce Connection: close")
 			}
 		})
+	}
+}
+
+// connectUpstream accepts CONNECT, records Proxy-Authorization and echoes the tunnel.
+func connectUpstream(t *testing.T) (host, port string, auths chan string) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	auths = make(chan string, 10)
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				br := bufio.NewReader(c)
+				req, err := http.ReadRequest(br)
+				if err != nil {
+					return
+				}
+				auths <- req.Header.Get("Proxy-Authorization")
+				c.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
+				io.Copy(c, br)
+			}(c)
+		}
+	}()
+	host, port, _ = net.SplitHostPort(ln.Addr().String())
+	return host, port, auths
+}
+
+func openTunnel(t *testing.T, ls *LocalServer) net.Conn {
+	t.Helper()
+	c := dialServer(t, ls)
+	c.Write([]byte("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n"))
+	c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	br := bufio.NewReader(c)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("tunnel not established: %v", err)
+	}
+	return c
+}
+
+func echo(t *testing.T, c net.Conn, msg string) {
+	t.Helper()
+	c.Write([]byte(msg))
+	buf := make([]byte, len(msg))
+	c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := io.ReadFull(c, buf); err != nil || string(buf) != msg {
+		t.Fatalf("tunnel broken: got %q, err %v", buf, err)
+	}
+}
+
+func TestUpdateUpstreamKeepsOpenTunnelsAndPort(t *testing.T) {
+	host, port, auths := connectUpstream(t)
+	cfg := UpstreamConfig{ID: "x", Host: host, Port: port, Protocol: "http", Username: "u", Password: "p", SessionID: "s1"}
+	ls := startServer(t, cfg)
+	defer ls.Stop()
+	before := ls.Port()
+
+	c1 := openTunnel(t, ls)
+	<-auths
+	echo(t, c1, "ping")
+
+	cfg.SessionID = "s2"
+	ls.UpdateUpstream(cfg)
+
+	echo(t, c1, "still-open")
+	openTunnel(t, ls)
+	want := "Basic " + base64.StdEncoding.EncodeToString([]byte("u_session-s2:p"))
+	if got := <-auths; got != want {
+		t.Fatalf("new connection used auth %q, want new session %q", got, want)
+	}
+	if ls.Port() != before {
+		t.Fatal("port changed")
 	}
 }
 

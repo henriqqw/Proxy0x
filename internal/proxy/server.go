@@ -57,6 +57,13 @@ func (ls *LocalServer) Port() int {
 	return ls.port
 }
 
+// UpdateUpstream switches new connections to u; open tunnels and the port are kept.
+func (ls *LocalServer) UpdateUpstream(u UpstreamConfig) {
+	ls.mu.Lock()
+	ls.upstream = u
+	ls.mu.Unlock()
+}
+
 func (ls *LocalServer) UpstreamID() string {
 	ls.mu.RLock()
 	defer ls.mu.RUnlock()
