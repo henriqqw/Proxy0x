@@ -88,13 +88,9 @@ var (
 
 type systemProxy interface {
 	Set(port int) error
-	Clear()
+	Clear() error
+	Recover() error
 }
-
-type windowsSystemProxy struct{}
-
-func (windowsSystemProxy) Set(port int) error { return proxy.SetSystemProxy(port) }
-func (windowsSystemProxy) Clear()             { proxy.ClearSystemProxy() }
 
 type App struct {
 	ctx        context.Context
@@ -125,7 +121,7 @@ func NewApp() *App {
 		crypt:          crypto.NewStore(config.DataDir()),
 		dataFile:       config.DataFile(),
 		emit:           runtime.EventsEmit,
-		sysproxy:       windowsSystemProxy{},
+		sysproxy:       proxy.NewSystemProxy(),
 		newLocalServer: proxy.NewLocalServer,
 	}
 }
@@ -138,7 +134,7 @@ func (a *App) emitEvent(name string, data ...interface{}) {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	a.sysproxy.Clear()
+	a.sysproxy.Recover()
 	a.loadProxies()
 	go a.setupTray()
 	go a.healthCheckLoop()

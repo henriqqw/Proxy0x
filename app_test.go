@@ -24,20 +24,25 @@ type fakeSysProxy struct {
 	mu      sync.Mutex
 	enabled bool
 	port    int
+	sets    int
 }
 
 func (f *fakeSysProxy) Set(port int) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.enabled, f.port = true, port
+	f.sets++
 	return nil
 }
 
-func (f *fakeSysProxy) Clear() {
+func (f *fakeSysProxy) Clear() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.enabled = false
+	return nil
 }
+
+func (f *fakeSysProxy) Recover() error { return f.Clear() }
 
 func (f *fakeSysProxy) isEnabled() bool {
 	f.mu.Lock()
