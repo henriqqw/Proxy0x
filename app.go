@@ -381,14 +381,22 @@ func (a *App) AddProxiesBatch(raw string) ([]*ProxyEntry, error) {
 }
 
 func (a *App) RemoveProxy(id string) {
-	a.mu.Lock()
+	a.mu.RLock()
 	p := a.proxies[id]
+	active := p != nil && p.Active
+	a.mu.RUnlock()
+	if active {
+		a.DisconnectProxy(id)
+	}
+	a.clearLocalProxyIf(id)
+
+	a.mu.Lock()
 	host := ""
 	if p != nil {
 		host = p.Host + ":" + p.Port
+		a.closeClient(id + ":" + p.SessionID)
 	}
 	delete(a.proxies, id)
-	delete(a.clients, id)
 	a.mu.Unlock()
 	a.addLog("removed", id, host, "")
 	a.saveProxies()

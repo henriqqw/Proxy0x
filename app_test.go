@@ -150,6 +150,27 @@ func TestRotateWithLocalServerFailureDoesNotPanicOnDisconnect(t *testing.T) {
 	}
 }
 
+func TestRemoveActiveProxyDisconnectsFirst(t *testing.T) {
+	a, sys := newTestApp(t)
+	_, host, port := startFakeUpstream(t)
+	p := addTestProxy(t, a, host, port)
+	if _, err := a.ConnectProxy(p.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	a.RemoveProxy(p.ID)
+
+	if a.localProxy != nil || sys.isEnabled() {
+		t.Fatal("removed proxy must not keep routing traffic")
+	}
+	if n := len(a.clients); n != 0 {
+		t.Fatalf("%d HTTP clients leaked", n)
+	}
+	if len(a.GetProxies()) != 0 {
+		t.Fatal("proxy not removed")
+	}
+}
+
 func TestGetOrCreateClientIsSafeForConcurrentReaders(t *testing.T) {
 	for round := 0; round < 20; round++ {
 		a, _ := newTestApp(t)
