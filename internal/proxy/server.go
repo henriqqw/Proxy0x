@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"net"
@@ -81,6 +82,9 @@ const (
 	acceptBackoffMax = time.Second
 )
 
+// upstreamTimeout bounds dialing the upstream proxy and its handshake.
+var upstreamTimeout = 15 * time.Second
+
 func (ls *LocalServer) serve() {
 	var delay time.Duration
 	for {
@@ -158,11 +162,13 @@ func (ls *LocalServer) dialViaSocks5(target string) (net.Conn, error) {
 	if username != "" {
 		auth = &netproxy.Auth{User: username, Password: u.Password}
 	}
-	dialer, err := netproxy.SOCKS5("tcp", net.JoinHostPort(u.Host, u.Port), auth, netproxy.Direct)
+	dialer, err := netproxy.SOCKS5("tcp", net.JoinHostPort(u.Host, u.Port), auth, &net.Dialer{Timeout: upstreamTimeout})
 	if err != nil {
 		return nil, err
 	}
-	return dialer.Dial("tcp", target)
+	ctx, cancel := context.WithTimeout(context.Background(), upstreamTimeout)
+	defer cancel()
+	return dialer.(netproxy.ContextDialer).DialContext(ctx, "tcp", target)
 }
 
 func (ls *LocalServer) handleConn(clientConn net.Conn) {
@@ -201,7 +207,7 @@ func (ls *LocalServer) handleConnect(clientConn net.Conn, req *http.Request) {
 		defer func() { ls.untrackConn(upConn); upConn.Close() }()
 		clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 	} else {
-		upConn, err = net.DialTimeout("tcp", ls.upstreamAddr(), 15*time.Second)
+		upConn, err = net.DialTimeout("tcp", ls.upstreamAddr(), upstreamTimeout)
 		if err != nil {
 			fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
 			return
@@ -214,6 +220,7 @@ func (ls *LocalServer) handleConnect(clientConn net.Conn, req *http.Request) {
 			connectReq += "Proxy-Authorization: " + auth + "\r\n"
 		}
 		connectReq += "\r\n"
+		upConn.SetDeadline(time.Now().Add(upstreamTimeout))
 		upConn.Write([]byte(connectReq))
 
 		upReader := bufio.NewReader(upConn)
@@ -223,6 +230,7 @@ func (ls *LocalServer) handleConnect(clientConn net.Conn, req *http.Request) {
 			return
 		}
 		resp.Body.Close()
+		upConn.SetDeadline(time.Time{})
 
 		if resp.StatusCode != 200 {
 			fmt.Fprintf(clientConn, "HTTP/1.1 %s\r\n\r\n", resp.Status)
@@ -289,7 +297,7 @@ func (ls *LocalServer) handleHTTP(clientConn net.Conn, req *http.Request) {
 		upConn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 		req.Write(upConn)
 	} else {
-		upConn, err = net.DialTimeout("tcp", ls.upstreamAddr(), 15*time.Second)
+		upConn, err = net.DialTimeout("tcp", ls.upstreamAddr(), upstreamTimeout)
 		if err != nil {
 			fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
 			return

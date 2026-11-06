@@ -125,6 +125,51 @@ func TestPlainHTTPClosesClientAfterResponse(t *testing.T) {
 	}
 }
 
+func silentUpstream(t *testing.T) (host, port string) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { c.Close() })
+		}
+	}()
+	host, port, _ = net.SplitHostPort(ln.Addr().String())
+	return host, port
+}
+
+func TestSilentUpstreamTimesOut(t *testing.T) {
+	old := upstreamTimeout
+	upstreamTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { upstreamTimeout = old })
+
+	for _, proto := range []string{"http", "socks5"} {
+		t.Run(proto, func(t *testing.T) {
+			host, port := silentUpstream(t)
+			ls := startServer(t, UpstreamConfig{ID: "x", Host: host, Port: port, Protocol: proto})
+			defer ls.Stop()
+			c := dialServer(t, ls)
+
+			c.Write([]byte("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n"))
+			c.SetReadDeadline(time.Now().Add(2 * time.Second))
+			resp, err := http.ReadResponse(bufio.NewReader(c), nil)
+			if err != nil {
+				t.Fatalf("no answer within 2s from a silent upstream: %v", err)
+			}
+			if resp.StatusCode != http.StatusBadGateway {
+				t.Fatalf("status = %d, want 502", resp.StatusCode)
+			}
+		})
+	}
+}
+
 type failingListener struct {
 	calls  atomic.Int64
 	closed chan struct{}
