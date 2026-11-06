@@ -20,9 +20,12 @@ Windows desktop proxy manager. Route all browser traffic through HTTP or SOCKS5 
 ## Screenshots
 
 <p align="center">
-  <img src="assets/screenshots/connected.png" alt="Connected proxy with geolocation" width="270">
-  <img src="assets/screenshots/dark-empty.png" alt="Disconnected proxy card" width="270">
-  <img src="assets/screenshots/language-menu.png" alt="Language selector with 16 languages" width="270">
+  <img src="assets/screenshots/connected.png" alt="Connected proxy with geolocation" width="240">
+  <img src="assets/screenshots/empty.png" alt="Empty state" width="240">
+</p>
+<p align="center">
+  <img src="assets/screenshots/settings.png" alt="Settings — language, rotation, import/export" width="240">
+  <img src="assets/screenshots/tools-mcp.png" alt="Security, tools and MCP integration" width="240">
 </p>
 
 ## Downloads
