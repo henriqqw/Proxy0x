@@ -46,7 +46,11 @@ export function GetMyIP():Promise<string>;
 
 export function GetProxies():Promise<Array<main.ProxyEntry>>;
 
+export function GetStoreError():Promise<string>;
+
 export function GetTheme():Promise<string>;
+
+export function GetVersion():Promise<string>;
 
 export function InstallMCPClient(arg1:string):Promise<void>;
 

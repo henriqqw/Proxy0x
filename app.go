@@ -321,6 +321,17 @@ func (a *App) checkStoreWritable() error {
 	return nil
 }
 
+// GetStoreError lets the UI learn about a read-only store on mount; the
+// store-error event fires during startup, before the webview listens.
+func (a *App) GetStoreError() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.storeErr == nil {
+		return ""
+	}
+	return a.storeErr.Error()
+}
+
 func (a *App) saveProxies() error {
 	if err := a.checkStoreWritable(); err != nil {
 		return err

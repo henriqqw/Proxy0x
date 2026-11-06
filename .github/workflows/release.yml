@@ -41,7 +41,7 @@ jobs:
           sed -i "s/\"productVersion\": \".*\"/\"productVersion\": \"$VERSION\"/" wails.json
 
       - name: Build app
-        run: wails build -ldflags "-s -w" -platform windows/amd64
+        run: wails build -ldflags "-s -w -X main.appVersion=${{ steps.version.outputs.version }}" -platform windows/amd64
 
       - name: Build MCP server
         run: go build -ldflags "-s -w" -o build/bin/proxy0x-mcp.exe ./cmd/proxy0x-mcp

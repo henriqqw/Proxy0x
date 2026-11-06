@@ -90,8 +90,16 @@ export function GetProxies() {
   return window['go']['main']['App']['GetProxies']();
 }
 
+export function GetStoreError() {
+  return window['go']['main']['App']['GetStoreError']();
+}
+
 export function GetTheme() {
   return window['go']['main']['App']['GetTheme']();
+}
+
+export function GetVersion() {
+  return window['go']['main']['App']['GetVersion']();
 }
 
 export function InstallMCPClient(arg1) {

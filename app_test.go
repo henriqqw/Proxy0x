@@ -528,6 +528,18 @@ func TestUnreadableStoreBecomesReadOnly(t *testing.T) {
 	}
 }
 
+func TestGetStoreErrorReportsReadOnlyStore(t *testing.T) {
+	a, _ := newTestApp(t)
+	if a.GetStoreError() != "" {
+		t.Fatal("fresh store must not report an error")
+	}
+	os.WriteFile(a.dataFile, []byte("{broken"), 0o600)
+	a.loadProxies()
+	if a.GetStoreError() == "" {
+		t.Fatal("GetStoreError must report the load failure")
+	}
+}
+
 func TestSaveIsAtomicWithBackup(t *testing.T) {
 	a, _ := newTestApp(t)
 	addTestProxy(t, a, "1.1.1.1", "80")
