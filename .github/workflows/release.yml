@@ -68,7 +68,7 @@ jobs:
 
       - name: Install NSIS
         if: steps.check.outputs.needed == 'true'
-        shell: bash
+        shell: pwsh
         run: choco install nsis -y
 
       - name: Update version in wails.json
@@ -81,7 +81,11 @@ jobs:
       - name: Build installer
         if: steps.check.outputs.needed == 'true'
         shell: bash
-        run: wails build -nsis -windowsconsole=false
+        env:
+          PATH: /c/Program Files (x86)/NSIS:/c/Program Files/NSIS:${{ env.PATH }}
+        run: |
+          export PATH="/c/Program Files (x86)/NSIS:/c/Program Files/NSIS:$PATH"
+          wails build -nsis -windowsconsole=false
 
       - name: Generate changelog
         if: steps.check.outputs.needed == 'true'
