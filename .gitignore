@@ -21,3 +21,10 @@ frontend/node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# Secrets / keys
+*.key
+*.pem
+*.p12
+.env
+.env.*

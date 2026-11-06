@@ -7,7 +7,7 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "caosdev",
-    "email": "rodneysalazar1999@gmail.com"
+    "name": "ProxyUI",
+    "email": ""
   }
 }
