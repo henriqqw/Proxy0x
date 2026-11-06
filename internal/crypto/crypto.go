@@ -10,67 +10,39 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"unsafe"
-)
 
-var (
-	crypt32            = syscall.NewLazyDLL("crypt32.dll")
-	kernel32           = syscall.NewLazyDLL("kernel32.dll")
-	cryptProtectData   = crypt32.NewProc("CryptProtectData")
-	cryptUnprotectData = crypt32.NewProc("CryptUnprotectData")
-	localFree          = kernel32.NewProc("LocalFree")
+	"golang.org/x/sys/windows"
 )
-
-type dataBlob struct {
-	size uint32
-	data uintptr
-}
 
 func dpapiEncrypt(plaintext []byte) ([]byte, error) {
 	if len(plaintext) == 0 {
 		return nil, fmt.Errorf("empty input")
 	}
-	inBlob := dataBlob{size: uint32(len(plaintext)), data: uintptr(unsafe.Pointer(&plaintext[0]))}
-	var outBlob dataBlob
-
-	r, _, err := cryptProtectData.Call(
-		uintptr(unsafe.Pointer(&inBlob)),
-		0, 0, 0, 0,
-		1, // CRYPTPROTECT_UI_FORBIDDEN
-		uintptr(unsafe.Pointer(&outBlob)),
-	)
-	if r == 0 {
-		return nil, fmt.Errorf("CryptProtectData failed: %v", err)
+	in := windows.DataBlob{Size: uint32(len(plaintext)), Data: &plaintext[0]}
+	var out windows.DataBlob
+	if err := windows.CryptProtectData(&in, nil, nil, 0, nil, windows.CRYPTPROTECT_UI_FORBIDDEN, &out); err != nil {
+		return nil, fmt.Errorf("CryptProtectData failed: %w", err)
 	}
-	defer localFree.Call(outBlob.data)
-
-	result := make([]byte, outBlob.size)
-	copy(result, unsafe.Slice((*byte)(unsafe.Pointer(outBlob.data)), outBlob.size))
-	return result, nil
+	return takeBlob(out), nil
 }
 
 func dpapiDecrypt(ciphertext []byte) ([]byte, error) {
 	if len(ciphertext) == 0 {
 		return nil, fmt.Errorf("empty input")
 	}
-	inBlob := dataBlob{size: uint32(len(ciphertext)), data: uintptr(unsafe.Pointer(&ciphertext[0]))}
-	var outBlob dataBlob
-
-	r, _, err := cryptUnprotectData.Call(
-		uintptr(unsafe.Pointer(&inBlob)),
-		0, 0, 0, 0,
-		1, // CRYPTPROTECT_UI_FORBIDDEN
-		uintptr(unsafe.Pointer(&outBlob)),
-	)
-	if r == 0 {
-		return nil, fmt.Errorf("CryptUnprotectData failed: %v", err)
+	in := windows.DataBlob{Size: uint32(len(ciphertext)), Data: &ciphertext[0]}
+	var out windows.DataBlob
+	if err := windows.CryptUnprotectData(&in, nil, nil, 0, nil, windows.CRYPTPROTECT_UI_FORBIDDEN, &out); err != nil {
+		return nil, fmt.Errorf("CryptUnprotectData failed: %w", err)
 	}
-	defer localFree.Call(outBlob.data)
+	return takeBlob(out), nil
+}
 
-	result := make([]byte, outBlob.size)
-	copy(result, unsafe.Slice((*byte)(unsafe.Pointer(outBlob.data)), outBlob.size))
-	return result, nil
+// takeBlob copies a DPAPI output blob into Go memory and frees it.
+func takeBlob(b windows.DataBlob) []byte {
+	defer windows.LocalFree(windows.Handle(unsafe.Pointer(b.Data)))
+	return append([]byte(nil), unsafe.Slice(b.Data, b.Size)...)
 }
 
 type Store struct {
