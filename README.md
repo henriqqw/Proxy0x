@@ -208,7 +208,7 @@ Rotation swaps the upstream session in place: same local port, open connections 
 | Frontend | React 18, TypeScript 5.6, Tailwind CSS 3, Vite 6 | Components, theme, layout |
 | Drag & drop | @dnd-kit | Sortable proxy list |
 | Icons | Lucide React | Iconography |
-| Flags | flagcdn.com | Country flag images (lazy loaded) |
+| Flags | country-flag-icons | Country flags bundled with the app (no remote requests) |
 | Tray | energye/systray | Tray icon and menu |
 | Crypto | AES-256-GCM + Windows DPAPI (`golang.org/x/sys/windows`) | Credential encryption at rest |
 | Network | `net`, `net/http`, `golang.org/x/net/proxy` | Local proxy, HTTP/SOCKS5 clients |
@@ -330,20 +330,22 @@ Proxy0x/
 
 ## External services
 
-| Service | Usage |
-|---------|-------|
-| [api.ipify.org](https://www.ipify.org/) | Exit IP through the proxy, and your direct IP |
-| [ipwho.is](https://ipwho.is/) | IP geolocation (app and MCP server) |
-| [speed.cloudflare.com](https://speed.cloudflare.com/) | Speed test download sample |
-| [flagcdn.com](https://flagcdn.com/) | Country flag images |
-| Google Fonts | Inter font (loaded by the UI) |
+| Service | Usage | Seen IP |
+|---------|-------|---------|
+| [api.ipify.org](https://www.ipify.org/) | Exit IP through the proxy (connect, rotate, health check, speed test) | Proxy IP |
+| [api.ipify.org](https://www.ipify.org/) | Direct IP for "My IP" and the exit-IP check | Real IP (by design) |
+| [ipwho.is](https://ipwho.is/) | Geolocation for the app and the MCP server, sent through the proxy | Proxy IP |
+| [speed.cloudflare.com](https://speed.cloudflare.com/) | Speed test download sample, through the proxy | Proxy IP |
+| Google Fonts | Inter font loaded by the UI | Real IP when no proxy is connected |
+
+Country flags are bundled with the app (no remote requests). All requests use HTTPS.
 
 ## Known limitations
 
 - **System proxy scope:** only applications that honor the Windows (WinINET) system proxy are routed. UDP traffic (e.g. WebRTC, QUIC) and apps with their own network stack are not covered and can reveal your real IP.
 - **Kill switch (known risk):** it adds a Windows Firewall rule that blocks all outbound traffic plus allow rules for Proxy0x and loopback. Windows Firewall gives block rules precedence over allow rules, so verify on your machine that Proxy0x itself still connects before relying on it. The rules persist if the app is killed or uninstalled while the switch is on; turn it off from the app (UAC prompt) to remove them.
 - **"DNS leak test"** compares the exit IP through the proxy with your direct IP. It is an exit-IP check, not a DNS resolver test.
-- **Remote resources:** the UI loads Google Fonts and flagcdn.com images, which reveal your IP to those services when no proxy is connected.
+- **Remote resources:** the UI loads Google Fonts, which reveals your IP to Google when no proxy is connected.
 - **Single active proxy:** connecting one proxy disconnects the previous one.
 - Windows x64 only.
 

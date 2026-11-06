@@ -12,7 +12,7 @@ React 18 + TypeScript + Tailwind CSS frontend for the Proxy0x desktop app. Bundl
 | Vite | 6 | Dev server with HMR, production bundler |
 | @dnd-kit | — | Drag-and-drop proxy list reordering |
 | Lucide React | — | Monochrome icon set |
-| flagcdn.com | — | Country flag images (remote, `FlagIcon`) |
+| country-flag-icons | — | Country flag SVGs bundled with the app (`FlagIcon`) |
 | Google Fonts | — | Inter font (remote `<link>` in `index.html`) |
 
 ## Component Tree
@@ -33,7 +33,7 @@ App.tsx
             └── SettingsPage
 ```
 
-Leaf components: `StatusBadge` (offline / connecting / connected / error dot), `FlagIcon` (flag from flagcdn.com).
+Leaf components: `StatusBadge` (offline / connecting / connected / error dot), `FlagIcon` (bundled flag SVG from `country-flag-icons`).
 
 `ContextMenu.tsx` exists in `src/components/` but is **not mounted** anywhere (dead code).
 
@@ -118,5 +118,5 @@ Custom title bar (drag region), minimize, maximize toggle and close (hides to tr
 - Group filter: if the active group disappears and no groups remain, the filter bar hides while the list stays filtered (empty).
 - Delete has no confirmation.
 - Some strings are hardcoded in English ("All", the drop notification, some `aria-label`s); window control buttons lack accessible labels.
-- Remote resources (Google Fonts, flagcdn.com) are loaded at startup and there is no Content-Security-Policy.
+- Google Fonts is loaded at startup and there is no Content-Security-Policy (flags are bundled).
 - External links use `target="_blank"` instead of the Wails `BrowserOpenURL` runtime call.

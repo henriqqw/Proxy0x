@@ -11,6 +11,7 @@ import {
 import { main } from 'wailsjs/go/models'
 import { languages } from '../i18n/translations'
 import { useTranslation } from '../i18n/LanguageContext'
+import FlagIcon from './FlagIcon'
 
 const mcpMeta: Record<string, { bg: string; icon: JSX.Element }> = {
   'claude-desktop': {
@@ -183,7 +184,7 @@ export default function SettingsPage({ onBack, onImported }: Props) {
                     : 'bg-surface-2 text-text-secondary hover:text-text-primary hover:bg-surface-3 border border-transparent'
                   }`}
               >
-                <img src={`https://flagcdn.com/w20/${l.flag.toLowerCase()}.png`} alt={l.flag} width={14} height={10} className="inline-block object-contain" loading="lazy" />
+                <FlagIcon countryCode={l.flag} size={14} />
                 <span className="truncate flex-1">{l.name}</span>
                 {lang === l.code && <Check size={12} className="text-accent shrink-0" />}
               </button>

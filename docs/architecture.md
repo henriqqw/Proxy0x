@@ -114,7 +114,7 @@ Only the desktop app writes `proxies.json`. The MCP server loads it at startup a
 | `api.ipify.org` | Exit IP (through proxy) and direct IP |
 | `ipwho.is` | IP geolocation |
 | `speed.cloudflare.com` | Speed test (100 KB) |
-| `flagcdn.com` | Country flags (frontend) |
+| — | Country flags are bundled (`country-flag-icons`), no remote request |
 | `fonts.googleapis.com` | Inter font (frontend) |
 
 ## Build and release
