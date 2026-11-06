@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Globe } from 'lucide-react'
 import { languages } from '../i18n/translations'
 import { useTranslation } from '../i18n/LanguageContext'
+import FlagIcon from './FlagIcon'
 
 export default function ContextMenu() {
   const { lang, t, setLang } = useTranslation()
@@ -54,12 +55,7 @@ export default function ContextMenu() {
                   : 'text-text-secondary hover:text-text-primary hover:bg-surface-3'
                 }`}
             >
-              <img
-                src={`https://flagcdn.com/w20/${l.flag}.png`}
-                alt={l.code}
-                className="w-4 h-3 object-cover rounded-[1px]"
-                loading="lazy"
-              />
+              <FlagIcon countryCode={l.flag} size={16} />
               <span className="flex-1 text-left">{l.name}</span>
               {lang === l.code && (
                 <span className="text-accent text-[10px]">&#10003;</span>

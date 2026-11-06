@@ -160,7 +160,7 @@ Browser ──► Local Proxy (127.0.0.1) ──► Upstream Proxy ──► Int
               │ Connection tracking          │ Session rotation
               ▼                              ▼
          Windows System Proxy          api.ipify.org (IP)
-         (auto-configured)             ip-api.com (geo)
+         (auto-configured)             ipwho.is (geo)
 ```
 
 ## Architecture
@@ -189,7 +189,7 @@ Browser ──► Local Proxy (127.0.0.1) ──► Upstream Proxy ──► Int
 └──────────────────────────────────────────────────┘
          │              │              │
          ▼              ▼              ▼
-   api.ipify.org   ip-api.com    Windows System
+   api.ipify.org   ipwho.is      Windows System
    (IP lookup)    (geolocation)  Proxy / Firewall
 
 ┌──────────────────────────────────────────────────┐
@@ -347,12 +347,14 @@ Proxy0x/
 
 ## External services
 
-| Service | Usage | Limit |
-|---------|-------|-------|
-| [api.ipify.org](https://www.ipify.org/) | Discover current IP through proxy | No documented limit |
-| [ip-api.com](http://ip-api.com/) | IP geolocation (country, city, ISP, AS) | 45 req/min (free tier) |
-| [ipwho.is](https://ipwho.is/) | Geolocation for MCP server | No documented limit |
-| [flagcdn.com](https://flagcdn.com/) | Country flag images | CDN, no limit |
+| Service | Usage | Seen IP | Limit |
+|---------|-------|---------|-------|
+| [api.ipify.org](https://www.ipify.org/) | Exit IP through the proxy (connect, rotate, health check, speed test) | Proxy IP | No documented limit |
+| [api.ipify.org](https://www.ipify.org/) | Direct IP for "My IP" and the DNS leak test | Real IP (by design) | No documented limit |
+| [ipwho.is](https://ipwho.is/) | Geolocation (country, city, ISP, ASN, timezone) for the app and the MCP server, sent through the proxy | Proxy IP | 10K req/month (free tier) |
+| [flagcdn.com](https://flagcdn.com/) | Country flag images | Real IP | CDN, no limit |
+
+All requests use HTTPS.
 
 ## Requirements
 
