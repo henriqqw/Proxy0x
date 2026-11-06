@@ -6,12 +6,24 @@ export function AddProxiesBatch(arg1) {
   return window['go']['main']['App']['AddProxiesBatch'](arg1);
 }
 
+export function AddProxiesMultiFormat(arg1) {
+  return window['go']['main']['App']['AddProxiesMultiFormat'](arg1);
+}
+
 export function AddProxy(arg1) {
   return window['go']['main']['App']['AddProxy'](arg1);
 }
 
 export function BenchmarkProxy(arg1) {
   return window['go']['main']['App']['BenchmarkProxy'](arg1);
+}
+
+export function BulkCheckProxies() {
+  return window['go']['main']['App']['BulkCheckProxies']();
+}
+
+export function CheckDNSLeak() {
+  return window['go']['main']['App']['CheckDNSLeak']();
 }
 
 export function CheckHealth(arg1) {
@@ -24,6 +36,10 @@ export function CheckMCPHealth() {
 
 export function CloseWindow() {
   return window['go']['main']['App']['CloseWindow']();
+}
+
+export function ConnectFastest() {
+  return window['go']['main']['App']['ConnectFastest']();
 }
 
 export function ConnectGroup(arg1) {
@@ -42,8 +58,16 @@ export function DisconnectProxy(arg1) {
   return window['go']['main']['App']['DisconnectProxy'](arg1);
 }
 
+export function EnableUWPSupport() {
+  return window['go']['main']['App']['EnableUWPSupport']();
+}
+
 export function ExportProxies() {
   return window['go']['main']['App']['ExportProxies']();
+}
+
+export function GetAutoFailover() {
+  return window['go']['main']['App']['GetAutoFailover']();
 }
 
 export function GetAutoRotateInterval() {
@@ -60,6 +84,10 @@ export function GetGroups() {
 
 export function GetHealthCheckInterval() {
   return window['go']['main']['App']['GetHealthCheckInterval']();
+}
+
+export function GetKillSwitch() {
+  return window['go']['main']['App']['GetKillSwitch']();
 }
 
 export function GetLanguage() {
@@ -110,6 +138,10 @@ export function RotateProxy(arg1) {
   return window['go']['main']['App']['RotateProxy'](arg1);
 }
 
+export function SetAutoFailover(arg1) {
+  return window['go']['main']['App']['SetAutoFailover'](arg1);
+}
+
 export function SetAutoRotateInterval(arg1) {
   return window['go']['main']['App']['SetAutoRotateInterval'](arg1);
 }
@@ -118,12 +150,20 @@ export function SetHealthCheckInterval(arg1) {
   return window['go']['main']['App']['SetHealthCheckInterval'](arg1);
 }
 
+export function SetKillSwitch(arg1) {
+  return window['go']['main']['App']['SetKillSwitch'](arg1);
+}
+
 export function SetLanguage(arg1) {
   return window['go']['main']['App']['SetLanguage'](arg1);
 }
 
 export function SetProxyGroup(arg1, arg2) {
   return window['go']['main']['App']['SetProxyGroup'](arg1, arg2);
+}
+
+export function SetProxyName(arg1, arg2) {
+  return window['go']['main']['App']['SetProxyName'](arg1, arg2);
 }
 
 export function SetTheme(arg1) {

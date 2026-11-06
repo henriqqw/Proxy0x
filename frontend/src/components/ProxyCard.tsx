@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import {
   ConnectProxy, DisconnectProxy, RotateProxy,
-  RemoveProxy, BenchmarkProxy, SetProxyGroup,
+  RemoveProxy, BenchmarkProxy, SetProxyGroup, SetProxyName,
 } from 'wailsjs/go/main/App'
 import { main } from 'wailsjs/go/models'
 import { useSortable } from '@dnd-kit/sortable'
@@ -44,6 +44,8 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
   const [bench, setBench] = useState<{connectMs?: number; downloadMbps?: number} | null>(null)
   const [editGroup, setEditGroup] = useState(false)
   const [groupInput, setGroupInput] = useState(proxy.group || '')
+  const [editName, setEditName] = useState(false)
+  const [nameInput, setNameInput] = useState(proxy.name || '')
 
   const {
     attributes,
@@ -104,6 +106,21 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
               <GripVertical size={12} />
             </button>
             <StatusBadge status={status} />
+            {editName ? (
+              <input
+                autoFocus
+                value={nameInput}
+                onChange={e => setNameInput(e.target.value)}
+                onBlur={() => { SetProxyName(proxy.id, nameInput.trim()); setEditName(false) }}
+                onKeyDown={e => { if (e.key === 'Enter') { SetProxyName(proxy.id, nameInput.trim()); setEditName(false) } if (e.key === 'Escape') setEditName(false) }}
+                className="w-24 h-5 px-1.5 text-[10px] font-medium bg-surface-2 border border-border-strong rounded text-text-primary focus:outline-none"
+                placeholder={t.proxyName}
+              />
+            ) : proxy.name ? (
+              <button onClick={() => { setNameInput(proxy.name); setEditName(true) }} className="text-[11px] font-semibold text-text-primary hover:text-accent transition-colors truncate max-w-[100px]">
+                {proxy.name}
+              </button>
+            ) : null}
             <span className="text-[10px] font-mono text-text-tertiary truncate">
               {proxy.host}:{proxy.port}
             </span>
@@ -234,6 +251,24 @@ export default function ProxyCard({ proxy, onRemoved }: Props) {
 
       {expanded && (
         <div className="px-3 pb-3 space-y-1.5 text-[10px] text-text-tertiary border-t border-border-subtle animate-expand">
+          <div className="flex items-center justify-between pt-1.5">
+            <span className="flex items-center gap-1.5 text-text-tertiary/70"><Tag size={9} /> {t.proxyName}</span>
+            {editName ? (
+              <input
+                autoFocus
+                value={nameInput}
+                onChange={e => setNameInput(e.target.value)}
+                onBlur={() => { SetProxyName(proxy.id, nameInput.trim()); setEditName(false) }}
+                onKeyDown={e => { if (e.key === 'Enter') { SetProxyName(proxy.id, nameInput.trim()); setEditName(false) } if (e.key === 'Escape') setEditName(false) }}
+                className="w-24 h-5 px-1.5 text-[10px] font-mono bg-surface-2 border border-border-strong rounded text-text-primary focus:outline-none text-right"
+                placeholder={t.proxyNamePlaceholder}
+              />
+            ) : (
+              <button onClick={() => { setNameInput(proxy.name || ''); setEditName(true) }} className="font-mono text-text-secondary hover:text-text-primary transition-colors">
+                {proxy.name || '--'}
+              </button>
+            )}
+          </div>
           <DetailRow icon={<Server size={9} />} label={t.host} value={`${proxy.host}:${proxy.port}`} />
           <DetailRow icon={<Wifi size={9} />} label={t.protocol} value={(proxy.protocol || 'http').toUpperCase()} />
           <DetailRow icon={<Wifi size={9} />} label={t.session} value={proxy.sessionId || '--'} />

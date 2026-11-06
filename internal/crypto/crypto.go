@@ -9,7 +9,69 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
+	"unsafe"
 )
+
+var (
+	crypt32            = syscall.NewLazyDLL("crypt32.dll")
+	kernel32           = syscall.NewLazyDLL("kernel32.dll")
+	cryptProtectData   = crypt32.NewProc("CryptProtectData")
+	cryptUnprotectData = crypt32.NewProc("CryptUnprotectData")
+	localFree          = kernel32.NewProc("LocalFree")
+)
+
+type dataBlob struct {
+	size uint32
+	data uintptr
+}
+
+func dpapiEncrypt(plaintext []byte) ([]byte, error) {
+	if len(plaintext) == 0 {
+		return nil, fmt.Errorf("empty input")
+	}
+	inBlob := dataBlob{size: uint32(len(plaintext)), data: uintptr(unsafe.Pointer(&plaintext[0]))}
+	var outBlob dataBlob
+
+	r, _, err := cryptProtectData.Call(
+		uintptr(unsafe.Pointer(&inBlob)),
+		0, 0, 0, 0,
+		1, // CRYPTPROTECT_UI_FORBIDDEN
+		uintptr(unsafe.Pointer(&outBlob)),
+	)
+	if r == 0 {
+		return nil, fmt.Errorf("CryptProtectData failed: %v", err)
+	}
+	defer localFree.Call(outBlob.data)
+
+	result := make([]byte, outBlob.size)
+	copy(result, unsafe.Slice((*byte)(unsafe.Pointer(outBlob.data)), outBlob.size))
+	return result, nil
+}
+
+func dpapiDecrypt(ciphertext []byte) ([]byte, error) {
+	if len(ciphertext) == 0 {
+		return nil, fmt.Errorf("empty input")
+	}
+	inBlob := dataBlob{size: uint32(len(ciphertext)), data: uintptr(unsafe.Pointer(&ciphertext[0]))}
+	var outBlob dataBlob
+
+	r, _, err := cryptUnprotectData.Call(
+		uintptr(unsafe.Pointer(&inBlob)),
+		0, 0, 0, 0,
+		1, // CRYPTPROTECT_UI_FORBIDDEN
+		uintptr(unsafe.Pointer(&outBlob)),
+	)
+	if r == 0 {
+		return nil, fmt.Errorf("CryptUnprotectData failed: %v", err)
+	}
+	defer localFree.Call(outBlob.data)
+
+	result := make([]byte, outBlob.size)
+	copy(result, unsafe.Slice((*byte)(unsafe.Pointer(outBlob.data)), outBlob.size))
+	return result, nil
+}
 
 type Store struct {
 	dataDir string
@@ -25,21 +87,58 @@ func (s *Store) keyFile() string {
 
 func (s *Store) getOrCreateKey() ([]byte, error) {
 	os.MkdirAll(s.dataDir, 0o700)
-
 	path := s.keyFile()
-	key, err := os.ReadFile(path)
-	if err == nil && len(key) == 32 {
-		return key, nil
+
+	data, err := os.ReadFile(path)
+	if err == nil {
+		// DPAPI-protected key: "dpapi:" + base64
+		if strings.HasPrefix(string(data), "dpapi:") {
+			encoded := string(data)[6:]
+			encrypted, decErr := base64.StdEncoding.DecodeString(encoded)
+			if decErr != nil {
+				return nil, fmt.Errorf("decode dpapi key: %w", decErr)
+			}
+			key, decErr := dpapiDecrypt(encrypted)
+			if decErr != nil {
+				return nil, fmt.Errorf("dpapi decrypt key (profile changed?): %w — restore from %s.legacy if available", decErr, path)
+			}
+			if len(key) == 32 {
+				return key, nil
+			}
+			return nil, fmt.Errorf("dpapi key wrong size: %d", len(key))
+		}
+
+		// Legacy raw key file — migrate to DPAPI
+		if len(data) == 32 {
+			key := make([]byte, 32)
+			copy(key, data)
+			// Keep a backup before overwriting
+			os.WriteFile(path+".legacy", data, 0o600)
+			if saveErr := s.saveKeyDPAPI(key); saveErr != nil {
+				return key, nil
+			}
+			return key, nil
+		}
 	}
 
-	key = make([]byte, 32)
+	// Generate new key, store with DPAPI
+	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(path, key, 0o600); err != nil {
-		return nil, err
+	if err := s.saveKeyDPAPI(key); err != nil {
+		return key, os.WriteFile(path, key, 0o600)
 	}
 	return key, nil
+}
+
+func (s *Store) saveKeyDPAPI(key []byte) error {
+	encrypted, err := dpapiEncrypt(key)
+	if err != nil {
+		return err
+	}
+	encoded := "dpapi:" + base64.StdEncoding.EncodeToString(encrypted)
+	return os.WriteFile(s.keyFile(), []byte(encoded), 0o600)
 }
 
 func (s *Store) Encrypt(plaintext string) (string, error) {

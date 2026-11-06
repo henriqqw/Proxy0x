@@ -20,6 +20,7 @@ import (
 	"proxy_ui/internal/config"
 	"proxy_ui/internal/crypto"
 	"proxy_ui/internal/fsutil"
+	"proxy_ui/internal/killswitch"
 	"proxy_ui/internal/proxy"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -50,6 +51,7 @@ type GeoInfo struct {
 
 type ProxyEntry struct {
 	ID          string      `json:"id"`
+	Name        string      `json:"name"`
 	Host        string      `json:"host"`
 	Port        string      `json:"port"`
 	Username    string      `json:"username"`
@@ -66,6 +68,25 @@ type ProxyEntry struct {
 	Order       int         `json:"order"`
 	ConnectedAt string      `json:"connectedAt"`
 	TotalUptime int64       `json:"totalUptime"`
+}
+
+type BulkCheckResult struct {
+	ID          string `json:"id"`
+	Host        string `json:"host"`
+	Alive       bool   `json:"alive"`
+	Latency     int64  `json:"latency"`
+	ExitIP      string `json:"exitIp"`
+	Country     string `json:"country"`
+	CountryCode string `json:"countryCode"`
+	Anonymity   string `json:"anonymity"`
+	Error       string `json:"error,omitempty"`
+}
+
+type DNSLeakResult struct {
+	ProxyIP   string `json:"proxyIp"`
+	DNSIP     string `json:"dnsIp"`
+	DNSServer string `json:"dnsServer"`
+	Leaked    bool   `json:"leaked"`
 }
 
 type LogEntry struct {
@@ -165,6 +186,12 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	if config.Load().KillSwitch {
+		killswitch.Disable()
+		cfg := config.Load()
+		cfg.KillSwitch = false
+		config.Save(cfg)
+	}
 	a.lpMu.Lock()
 	if a.localProxy != nil {
 		a.localProxy.Stop()
@@ -534,6 +561,20 @@ func (a *App) GetGroups() []string {
 	}
 	sort.Strings(groups)
 	return groups
+}
+
+func (a *App) SetProxyName(id, name string) (*ProxyEntry, error) {
+	a.mu.Lock()
+	p, ok := a.proxies[id]
+	if !ok {
+		a.mu.Unlock()
+		return nil, fmt.Errorf("proxy not found")
+	}
+	p.Name = name
+	a.mu.Unlock()
+	a.saveProxies()
+	runtime.EventsEmit(a.ctx, "proxy-updated", p)
+	return p, nil
 }
 
 func (a *App) SetProxyGroup(id, group string) (*ProxyEntry, error) {
@@ -958,6 +999,7 @@ func (a *App) CheckHealth(id string) (*ProxyEntry, error) {
 				"id":   id,
 				"host": p.Host + ":" + p.Port,
 			})
+			a.tryFailover(id)
 		}
 		a.emitProxy(p)
 		return a.view(p), nil
@@ -1174,4 +1216,356 @@ func (a *App) GetMyIP() (string, error) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	return string(body), nil
+}
+
+// --- Kill Switch ---
+
+func (a *App) GetKillSwitch() bool {
+	return config.Load().KillSwitch
+}
+
+func (a *App) SetKillSwitch(enabled bool) error {
+	var err error
+	if enabled {
+		err = killswitch.Enable()
+	} else {
+		err = killswitch.Disable()
+	}
+	if err != nil {
+		return err
+	}
+	cfg := config.Load()
+	cfg.KillSwitch = enabled
+	config.Save(cfg)
+	return nil
+}
+
+// --- Auto Failover ---
+
+func (a *App) GetAutoFailover() bool {
+	return config.Load().AutoFailover
+}
+
+func (a *App) SetAutoFailover(enabled bool) {
+	cfg := config.Load()
+	cfg.AutoFailover = enabled
+	config.Save(cfg)
+}
+
+func (a *App) tryFailover(failedID string) {
+	if !config.Load().AutoFailover {
+		return
+	}
+	a.mu.RLock()
+	var best *ProxyEntry
+	var bestLatency int64 = 999999
+	for _, p := range a.proxies {
+		if p.ID == failedID || p.Active {
+			continue
+		}
+		if p.Latency > 0 && p.Latency < bestLatency {
+			best = p
+			bestLatency = p.Latency
+		} else if best == nil {
+			best = p
+		}
+	}
+	a.mu.RUnlock()
+
+	if best == nil {
+		return
+	}
+	a.addLog("failover", best.ID, best.Host+":"+best.Port, fmt.Sprintf("auto-failover from %s", failedID))
+	go a.ConnectProxy(best.ID)
+}
+
+// --- Auto-Selection by Latency ---
+
+func (a *App) ConnectFastest() (*ProxyEntry, error) {
+	a.mu.RLock()
+	proxies := make([]*ProxyEntry, 0)
+	for _, p := range a.proxies {
+		if !p.Active {
+			proxies = append(proxies, p)
+		}
+	}
+	a.mu.RUnlock()
+
+	if len(proxies) == 0 {
+		return nil, fmt.Errorf("no proxies available")
+	}
+
+	type result struct {
+		id      string
+		latency int64
+	}
+	results := make(chan result, len(proxies))
+	sem := make(chan struct{}, 10)
+
+	for _, p := range proxies {
+		go func(p *ProxyEntry) {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			client := a.getOrCreateClient(p)
+			start := time.Now()
+			resp, err := client.Get("https://api.ipify.org?format=json")
+			lat := time.Since(start).Milliseconds()
+			if err != nil {
+				results <- result{p.ID, 999999}
+				return
+			}
+			resp.Body.Close()
+			results <- result{p.ID, lat}
+		}(p)
+	}
+
+	var bestID string
+	var bestLat int64 = 999999
+	for range proxies {
+		r := <-results
+		if r.latency < bestLat {
+			bestLat = r.latency
+			bestID = r.id
+		}
+	}
+
+	if bestID == "" || bestLat >= 999999 {
+		return nil, fmt.Errorf("no proxy responded")
+	}
+
+	a.addLog("auto-select", bestID, "", fmt.Sprintf("fastest: %dms", bestLat))
+	return a.ConnectProxy(bestID)
+}
+
+// --- Bulk Proxy Checker ---
+
+func (a *App) BulkCheckProxies() []BulkCheckResult {
+	a.mu.RLock()
+	proxies := make([]*ProxyEntry, 0, len(a.proxies))
+	for _, p := range a.proxies {
+		proxies = append(proxies, p)
+	}
+	a.mu.RUnlock()
+
+	resultsCh := make(chan BulkCheckResult, len(proxies))
+	sem := make(chan struct{}, 10)
+	var wg sync.WaitGroup
+
+	realIP, _ := a.GetMyIP()
+
+	for _, p := range proxies {
+		wg.Add(1)
+		go func(p *ProxyEntry) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			r := BulkCheckResult{ID: p.ID, Host: p.Host + ":" + p.Port}
+			client := a.getOrCreateClient(p)
+
+			start := time.Now()
+			resp, err := client.Get("https://api.ipify.org?format=json")
+			r.Latency = time.Since(start).Milliseconds()
+
+			if err != nil {
+				r.Error = err.Error()
+				resultsCh <- r
+				return
+			}
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+			var ipRes struct{ IP string `json:"ip"` }
+			json.Unmarshal(body, &ipRes)
+
+			r.Alive = true
+			r.ExitIP = ipRes.IP
+
+			if geo := a.fetchGeoInfo(client, ipRes.IP); geo != nil {
+				r.Country = geo.Country
+				r.CountryCode = geo.CountryCode
+			}
+
+			if realIP != "" && r.ExitIP != "" {
+				if r.ExitIP == realIP {
+					r.Anonymity = "transparent"
+				} else {
+					r.Anonymity = "elite"
+				}
+			} else {
+				r.Anonymity = "unknown"
+			}
+
+			a.mu.Lock()
+			p.Latency = r.Latency
+			p.LastCheck = time.Now().Format(time.RFC3339)
+			a.mu.Unlock()
+
+			resultsCh <- r
+		}(p)
+	}
+
+	go func() { wg.Wait(); close(resultsCh) }()
+
+	var results []BulkCheckResult
+	for r := range resultsCh {
+		results = append(results, r)
+		runtime.EventsEmit(a.ctx, "bulk-check-progress", r)
+	}
+
+	a.addLog("bulk-check", "", "", fmt.Sprintf("checked %d proxies", len(results)))
+	return results
+}
+
+// --- DNS Leak Test ---
+
+func (a *App) CheckDNSLeak() DNSLeakResult {
+	result := DNSLeakResult{}
+
+	a.mu.RLock()
+	var activeProxy *ProxyEntry
+	for _, p := range a.proxies {
+		if p.Active {
+			activeProxy = p
+			break
+		}
+	}
+	a.mu.RUnlock()
+
+	if activeProxy == nil {
+		result.Leaked = true
+		return result
+	}
+
+	client := a.getOrCreateClient(activeProxy)
+	resp, err := client.Get("https://api.ipify.org?format=text")
+	if err == nil {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		result.ProxyIP = strings.TrimSpace(string(body))
+	}
+
+	directResp, err := http.Get("https://api.ipify.org?format=text")
+	if err == nil {
+		body, _ := io.ReadAll(directResp.Body)
+		directResp.Body.Close()
+		result.DNSIP = strings.TrimSpace(string(body))
+	}
+
+	if result.ProxyIP != "" && result.DNSIP != "" {
+		result.Leaked = result.ProxyIP == result.DNSIP
+	}
+
+	return result
+}
+
+// --- UWP Loopback Exemption ---
+
+func (a *App) EnableUWPSupport() error {
+	script := `@echo off
+CheckNetIsolation.exe LoopbackExempt -a -n="Microsoft.MicrosoftEdge_8wekyb3d8bbwe" >nul 2>&1
+CheckNetIsolation.exe LoopbackExempt -a -n="Microsoft.Windows.Search_cw5n1h2txyewy" >nul 2>&1
+CheckNetIsolation.exe LoopbackExempt -a -n="Microsoft.WindowsStore_8wekyb3d8bbwe" >nul 2>&1
+CheckNetIsolation.exe LoopbackExempt -a -n="Microsoft.MSPaint_8wekyb3d8bbwe" >nul 2>&1
+CheckNetIsolation.exe LoopbackExempt -a -n="Microsoft.MicrosoftEdge.Stable_8wekyb3d8bbwe" >nul 2>&1
+`
+	return killswitch.RunElevated(script)
+}
+
+// --- Import Formats ---
+
+func (a *App) AddProxiesMultiFormat(raw string) ([]*ProxyEntry, error) {
+	lines := strings.Split(raw, "\n")
+	var added []*ProxyEntry
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		var p *ProxyEntry
+		var err error
+
+		switch {
+		case strings.HasPrefix(line, "socks5://") || strings.HasPrefix(line, "socks4://") || strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://"):
+			p, err = parseProxyURI(line)
+		case strings.Contains(line, ","):
+			p, err = parseProxyCSV(line)
+		default:
+			p, err = parseProxy(line)
+		}
+
+		if err != nil || p == nil {
+			continue
+		}
+		a.mu.Lock()
+		a.proxies[p.ID] = p
+		a.mu.Unlock()
+		added = append(added, p)
+	}
+
+	if len(added) > 0 {
+		a.addLog("batch-added", "", "", fmt.Sprintf("%d proxies (multi-format)", len(added)))
+		a.saveProxies()
+		runtime.EventsEmit(a.ctx, "proxies-changed")
+	}
+	return added, nil
+}
+
+func parseProxyURI(raw string) (*ProxyEntry, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	protocol := "http"
+	if u.Scheme == "socks5" || u.Scheme == "socks4" {
+		protocol = "socks5"
+	}
+	host := u.Hostname()
+	port := u.Port()
+	if port == "" {
+		port = "8080"
+	}
+	entry := &ProxyEntry{
+		ID:        generateID(),
+		Host:      host,
+		Port:      port,
+		Protocol:  protocol,
+		Status:    StatusOffline,
+		SessionID: generateSessionID(),
+	}
+	if u.User != nil {
+		entry.Username = u.User.Username()
+		entry.Password, _ = u.User.Password()
+	}
+	return entry, nil
+}
+
+func parseProxyCSV(line string) (*ProxyEntry, error) {
+	parts := strings.Split(line, ",")
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("invalid CSV format")
+	}
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	entry := &ProxyEntry{
+		ID:        generateID(),
+		Host:      parts[0],
+		Port:      parts[1],
+		Protocol:  "http",
+		Status:    StatusOffline,
+		SessionID: generateSessionID(),
+	}
+	if len(parts) >= 4 {
+		entry.Username = parts[2]
+		entry.Password = parts[3]
+	}
+	if len(parts) >= 5 {
+		proto := strings.ToLower(parts[4])
+		if proto == "socks5" || proto == "socks4" {
+			entry.Protocol = "socks5"
+		}
+	}
+	return entry, nil
 }

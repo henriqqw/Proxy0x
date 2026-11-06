@@ -13,6 +13,8 @@ type Config struct {
 	Theme               string `json:"theme"`
 	AutoRotateInterval  int    `json:"autoRotateInterval"`
 	HealthCheckInterval int    `json:"healthCheckInterval"`
+	KillSwitch          bool   `json:"killSwitch"`
+	AutoFailover        bool   `json:"autoFailover"`
 }
 
 func DataDir() string {
