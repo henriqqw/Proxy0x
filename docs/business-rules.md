@@ -16,7 +16,7 @@ Residential proxy providers route traffic based on a session identifier embedded
 
 1. Generates a candidate 6-byte hex `SessionID` via `crypto/rand`.
 2. Verifies the exit IP through the proxy with the candidate session (see **Exit IP verification**).
-3. On success: the session switches to the candidate, the old HTTP client is closed, the geolocation is refreshed and the local proxy uses the new session.
+3. On success: the session switches to the candidate, the old HTTP client is closed, the geolocation is refreshed and the local proxy switches new connections to the new session in place (same port, open browser connections kept, no registry change).
 4. On failure: the previous session and status are kept (traffic keeps flowing on the old session) and an error is returned.
 
 ## Exit IP verification

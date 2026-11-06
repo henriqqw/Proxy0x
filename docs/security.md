@@ -87,13 +87,15 @@ The `proxy_list` MCP tool and the `proxy://pool` MCP resource strip `username` a
 When a proxy is connected, the app:
 
 1. Starts a local HTTP/SOCKS5 server on `127.0.0.1`
-2. Sets `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ProxyServer` and `ProxyEnable`
-3. All browser traffic routes through the local server → upstream proxy
+2. Saves the user's current `ProxyEnable`, `ProxyServer` and `ProxyOverride` (under `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`) to `%AppData%/Proxy0x/sysproxy-backup.json`, together with the address it is about to set. An existing backup is kept (a rotation or reconnect never overwrites the user's original values with ours).
+3. Points the system proxy at the local server
+4. Traffic of applications that honor the Windows (WinINET) proxy routes through the local server → upstream proxy
 
-On disconnect or app shutdown:
-- System proxy settings are cleared (`ProxyEnable = 0`)
-- `clearSystemProxy()` is called in the `shutdown()` lifecycle hook
-- Tracked TCP connections are force-closed for instant disconnect
+On disconnect or app shutdown the saved values are restored exactly (including a corporate proxy the user had before) and the backup file is deleted.
+
+On startup (crash recovery): if the registry still points at the address recorded in the backup, the saved values are restored. Settings the user changed in the meantime are left alone (the stale backup is discarded). Without a backup, only a leftover from older versions (`127.0.0.1:*` with Proxy0x's exact bypass list) is disabled; any other proxy — including another local tool such as `127.0.0.1:8888` — is never touched.
+
+Tracked TCP connections are force-closed for instant disconnect.
 
 ## Connection tracking
 

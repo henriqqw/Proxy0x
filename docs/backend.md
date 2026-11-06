@@ -93,7 +93,7 @@ Proxies can be tagged with a group name. Groups are derived dynamically from the
 
 1. Generate a candidate session ID and an HTTP client for it
 2. Verify the exit IP through the candidate session, fetch geo
-3. On success: switch to the new session, close the old client, point the local proxy at the new session
+3. On success: switch to the new session, close the old client and update the local server's upstream in place (`LocalServer.UpdateUpstream`): same port, open connections kept, registry untouched
 4. On failure: close the candidate client, keep the previous session and status, return the error
 
 Session rotation works by appending `_session-{id}` to the proxy username. Each unique session ID gets a different exit IP from residential proxy pools.
@@ -113,8 +113,10 @@ Defined in `internal/proxy/server.go`. The `LocalServer` struct:
 ### System Proxy (`internal/proxy/system.go`)
 
 Uses Windows registry to configure system-wide proxy:
-- `SetSystemProxy(port)` — sets `ProxyServer`, `ProxyOverride`, `ProxyEnable` in `HKCU\...\Internet Settings`
-- `ClearSystemProxy()` — sets `ProxyEnable` to `0`
+- `SystemProxy.Set(port)` — backs up the user's `ProxyEnable`/`ProxyServer`/`ProxyOverride` (first time only) to `sysproxy-backup.json`, then points `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings` at `127.0.0.1:<port>`
+- `SystemProxy.Clear()` — restores the backed-up values and deletes the backup
+- `SystemProxy.Recover()` — on startup, restores the backup only if the registry still holds the address Proxy0x set (see `docs/security.md`)
+- Registry access goes through a small `Registry` interface (real implementation: `golang.org/x/sys/windows/registry`) so the logic is testable
 - Calls `InternetSetOptionW` via `wininet.dll` to refresh proxy settings immediately
 
 Bypass list: `localhost;127.*;10.*;192.168.*;<local>`
