@@ -76,17 +76,29 @@ func (ls *LocalServer) Stop() {
 	ls.wg.Wait()
 }
 
+const (
+	acceptBackoffMin = 5 * time.Millisecond
+	acceptBackoffMax = time.Second
+)
+
 func (ls *LocalServer) serve() {
+	var delay time.Duration
 	for {
 		conn, err := ls.listener.Accept()
 		if err != nil {
+			if delay == 0 {
+				delay = acceptBackoffMin
+			} else {
+				delay = min(delay*2, acceptBackoffMax)
+			}
 			select {
 			case <-ls.stopCh:
 				return
-			default:
+			case <-time.After(delay):
 				continue
 			}
 		}
+		delay = 0
 		ls.wg.Add(1)
 		go func() {
 			defer ls.wg.Done()

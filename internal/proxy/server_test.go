@@ -3,10 +3,12 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -120,6 +122,34 @@ func TestPlainHTTPClosesClientAfterResponse(t *testing.T) {
 				t.Fatalf("response should announce Connection: close")
 			}
 		})
+	}
+}
+
+type failingListener struct {
+	calls  atomic.Int64
+	closed chan struct{}
+}
+
+func (l *failingListener) Accept() (net.Conn, error) {
+	l.calls.Add(1)
+	select {
+	case <-l.closed:
+		return nil, net.ErrClosed
+	default:
+		return nil, errors.New("accept: too many open files")
+	}
+}
+func (l *failingListener) Close() error   { close(l.closed); return nil }
+func (l *failingListener) Addr() net.Addr { return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1} }
+
+func TestAcceptErrorsBackOff(t *testing.T) {
+	ln := &failingListener{closed: make(chan struct{})}
+	ls := newLocalServer(ln, UpstreamConfig{})
+	time.Sleep(100 * time.Millisecond)
+	stopWithin(t, ls, time.Second)
+
+	if n := ln.calls.Load(); n > 20 {
+		t.Fatalf("Accept called %d times in 100ms: busy loop instead of backoff", n)
 	}
 }
 
