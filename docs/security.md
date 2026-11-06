@@ -96,7 +96,7 @@ On disconnect or app shutdown:
 
 ## Connection tracking
 
-The local proxy server tracks all active TCP connections. On disconnect, every tracked connection is closed immediately — no hanging connections or DNS leaks. The `net.Conn` wrapper intercepts `Close()` to remove connections from the tracker.
+The local proxy server tracks every TCP connection it handles — the client side and the upstream side, for both CONNECT tunnels and plain HTTP requests — via `trackConn`/`untrackConn`. `Stop()` closes every tracked connection before waiting for its goroutines, so it returns in under a second regardless of in-flight traffic.
 
 ## Implementation locations
 

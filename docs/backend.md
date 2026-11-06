@@ -106,8 +106,10 @@ Defined in `internal/proxy/server.go`. The `LocalServer` struct:
 - Binds to `127.0.0.1:0` (random available port)
 - Accepts incoming connections and routes them through the upstream proxy
 - Supports HTTP CONNECT tunneling (for HTTPS) and plain HTTP forwarding
-- Supports SOCKS5 upstream via `golang.org/x/net/proxy`
-- Tracks all active connections for instant cleanup on `Stop()`
+- Plain HTTP: one request per client connection. The request is forwarded with `Connection: close` and the client connection is closed after the response body, so browsers open a new connection for the next request (no keep-alive through the local proxy)
+- Supports SOCKS5 upstream via `golang.org/x/net/proxy`; upstream dials (HTTP and SOCKS5) time out after 15s
+- Tracks all client and upstream connections; `Stop()` closes them all and returns in under a second
+- Temporary `Accept` errors back off (5ms doubling up to 1s) instead of spinning
 
 ### System Proxy (`internal/proxy/system.go`)
 
